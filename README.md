@@ -19,7 +19,7 @@ picture book is mostly wasted pixels.
 ## Quick start (Docker)
 
 ```bash
-git clone https://github.com/YOUR-GITHUB-USERNAME/inkslim.git
+git clone https://github.com/unrealbe/inkslim.git
 cd inkslim
 docker compose up -d --build
 ```
