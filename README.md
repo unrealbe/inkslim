@@ -30,7 +30,7 @@ Or run the prebuilt multi-arch image (amd64 and arm64):
 
 ```bash
 docker run -d --name inkslim -p 8080:8080 --restart unless-stopped \
-  ghcr.io/YOUR-GITHUB-USERNAME/inkslim:latest
+  ghcr.io/unrealbe/inkslim:latest
 ```
 
 ### Configuration
