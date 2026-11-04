@@ -1,15 +1,12 @@
 services:
   inkslim:
     # Use the prebuilt image...
-    # image: ghcr.io/unrealbe/inkslim:latest
+    image: ghcr.io/unrealbe/inkslim:latest
     # ... or build it locally:
-    build: .
+    #build: .
     container_name: inkslim
     restart: unless-stopped
     ports:
       - "8080:8080"          # host:container, change the left side if 8080 is taken
     environment:
       MAX_UPLOAD_MB: "500"
-      # Turn these on if the page is reachable outside your own network:
-      # BASIC_AUTH_USER: "me"
-      # BASIC_AUTH_PASS: "choose-a-strong-password"
