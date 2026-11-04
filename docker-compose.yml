@@ -1,7 +1,7 @@
 services:
   inkslim:
-    # Use the prebuilt image (replace YOUR-GITHUB-USERNAME) ...
-    # image: ghcr.io/YOUR-GITHUB-USERNAME/inkslim:latest
+    # Use the prebuilt image...
+    # image: ghcr.io/unrealbe/inkslim:latest
     # ... or build it locally:
     build: .
     container_name: inkslim
