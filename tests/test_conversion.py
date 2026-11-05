@@ -368,7 +368,7 @@ def test_unknown_checkpoint_version_is_quarantined_and_reprocessed(store, tmp_pa
     assert workspace.first_missing_page(1) == 1
     quarantined = list((workspace.pages_dir / "quarantine").glob("*.unknown-version.*.json"))
     assert len(quarantined) == 1
-    assert "quarantined" in caplog.text.lower()
+    assert "moved to quarantine" in caplog.text.lower()
 
 
 def test_corrupt_checkpoint_is_quarantined(store, tmp_path, caplog):
