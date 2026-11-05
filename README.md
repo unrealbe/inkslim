@@ -24,7 +24,7 @@ cd inkslim
 docker compose up -d --build
 ```
 
-Then open <http://localhost:8080> (or `http://YOUR-NAS-IP:8080`).
+Then open <http://localhost:8125> (or `http://DOCKER-HOST-IP:8125`).
 
 Or run the prebuilt multi-arch image (amd64 and arm64):
 
