@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py epub-shrink.sh ./
+COPY static ./static
 RUN chmod +x epub-shrink.sh \
  && useradd --system --uid 10001 --no-create-home app
 

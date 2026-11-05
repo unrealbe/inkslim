@@ -472,77 +472,96 @@ INDEX_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f6f5e">
 <title>Inkslim - EPUB & PDF optimizer</title>
+<link rel="icon" type="image/png" sizes="192x192" href="/static/inkslim-icon-192.png">
+<link rel="apple-touch-icon" href="/static/inkslim-icon-192.png">
+<link rel="manifest" href="/static/site.webmanifest">
 <style>
   :root {
-    --bg: #f6f5f1; --card: #ffffff; --text: #1d1d1b; --muted: #6b6a66;
-    --line: #d9d7d0; --accent: #2f6f5e; --accent-text: #ffffff; --drop: #eef4f1;
-    --err: #b3261e;
+    --bg:#f6f5f1; --card:#fff; --text:#1d1d1b; --muted:#6b6a66;
+    --line:#d9d7d0; --accent:#2f6f5e; --accent-text:#fff; --drop:#eef4f1;
+    --err:#b3261e;
   }
-  @media (prefers-color-scheme: dark) {
+  @media (prefers-color-scheme:dark) {
     :root {
-      --bg: #151615; --card: #1e201f; --text: #ecebe6; --muted: #9a9890;
-      --line: #34372f; --accent: #5fb89f; --accent-text: #0e1512; --drop: #1b2924;
-      --err: #f2a29b;
+      --bg:#151615; --card:#1e201f; --text:#ecebe6; --muted:#9a9890;
+      --line:#34372f; --accent:#5fb89f; --accent-text:#0e1512; --drop:#1b2924;
+      --err:#f2a29b;
     }
   }
-  * { box-sizing: border-box; }
+  * { box-sizing:border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 24px 16px 48px;
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:24px 16px 48px;
   }
-  main { max-width: 640px; margin: 0 auto; }
-  h1 { font-size: 1.5rem; margin: 0 0 4px; }
-  p.sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  main { max-width:640px; margin:0 auto; }
+  .brand { display:flex; align-items:center; gap:12px; margin:0 0 20px; }
+  .brand img { width:52px; height:52px; border-radius:11px; flex:0 0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 2px; line-height:1.2; }
+  p.sub { color:var(--muted); margin:0; }
+  .card {
+    background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:16px; margin-bottom:16px;
+  }
   #drop {
-    border: 2px dashed var(--line); border-radius: 12px; padding: 36px 16px;
-    text-align: center; cursor: pointer; transition: background .15s, border-color .15s;
+    border:2px dashed var(--line); border-radius:12px; padding:36px 16px;
+    text-align:center; cursor:pointer; transition:background .15s,border-color .15s;
   }
-  #drop.over { background: var(--drop); border-color: var(--accent); }
-  #drop strong { display: block; font-size: 1.1rem; }
-  #drop span { color: var(--muted); font-size: .9rem; }
-  details summary { cursor: pointer; font-weight: 600; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-  label { display: block; font-size: .85rem; color: var(--muted); }
-  input[type=number], select {
-    width: 100%; margin-top: 2px; padding: 8px; font: inherit; color: var(--text);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  #drop.over { background:var(--drop); border-color:var(--accent); }
+  #drop strong { display:block; font-size:1.1rem; }
+  #drop span { color:var(--muted); font-size:.9rem; }
+  details summary { cursor:pointer; font-weight:600; }
+  .settings-panel summary { list-style-position:inside; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+  label { display:block; font-size:.85rem; color:var(--muted); }
+  input[type=number],select {
+    width:100%; margin-top:2px; padding:8px; font:inherit; color:var(--text);
+    background:var(--bg); border:1px solid var(--line); border-radius:8px;
   }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); font-size: 1rem; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li { padding: 12px 0; border-top: 1px solid var(--line); }
-  li:first-child { border-top: 0; }
-  .name { font-weight: 600; word-break: break-word; }
-  .meta { color: var(--muted); font-size: .9rem; }
-  .err { color: var(--err); }
-  progress { width: 100%; height: 8px; margin-top: 6px; accent-color: var(--accent); }
+  .check {
+    display:flex; align-items:center; gap:8px; margin-top:12px;
+    color:var(--text); font-size:1rem;
+  }
+  .hint { color:var(--muted); font-size:.85rem; margin-top:12px; }
+  .section-heading { font-weight:600; margin:14px 0 2px; }
+  .mode-fields[hidden] { display:none !important; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:12px 0; border-top:1px solid var(--line); }
+  li:first-child { border-top:0; }
+  .name { font-weight:600; word-break:break-word; }
+  .meta { color:var(--muted); font-size:.9rem; }
+  .err { color:var(--err); }
+  progress { width:100%; height:8px; margin-top:6px; accent-color:var(--accent); }
   a.btn {
-    display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 8px;
-    background: var(--accent); color: var(--accent-text); text-decoration: none; font-weight: 600;
+    display:inline-block; margin-top:6px; padding:8px 14px; border-radius:8px;
+    background:var(--accent); color:var(--accent-text);
+    text-decoration:none; font-weight:600;
   }
-  .hint { color: var(--muted); font-size: .85rem; margin-top: 12px; }
-  .pdf-settings { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
-  .pdf-heading { font-weight: 600; margin-bottom: 4px; }
-  #pdf-mode-hint { margin-top: 8px; }
   .history-header {
-    display: flex; justify-content: space-between; align-items: center;
-    gap: 12px; margin-bottom: 8px; font-weight: 600;
+    display:flex; justify-content:space-between; align-items:center;
+    gap:12px; margin-bottom:8px; font-weight:600;
   }
   #clear-history {
-    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
-    background: var(--bg); color: var(--text); font: inherit; font-size: .85rem;
-    cursor: pointer;
+    border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+    background:var(--bg); color:var(--text); font:inherit; font-size:.85rem;
+    cursor:pointer;
   }
-  #clear-history:hover:not(:disabled) { border-color: var(--accent); }
-  #clear-history:disabled { opacity: .5; cursor: not-allowed; }
+  #clear-history:hover:not(:disabled) { border-color:var(--accent); }
+  #clear-history:disabled { opacity:.5; cursor:not-allowed; }
+  @media (max-width:440px) { .grid { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <main>
-  <h1>Inkslim</h1>
-  <p class="sub">Drop EPUB or PDF files here to get smaller versions for your e-reader.</p>
+  <header class="brand">
+    <img src="/static/inkslim-icon-192.png" alt="" width="52" height="52">
+    <div>
+      <h1>Inkslim</h1>
+      <p class="sub">Shrink EPUB and PDF files for your e-reader.</p>
+    </div>
+  </header>
 
   <div id="drop" class="card" tabindex="0" role="button" aria-label="Choose EPUB or PDF files">
     <strong>Drop your EPUB or PDF files here</strong>
@@ -550,40 +569,61 @@ INDEX_HTML = """<!doctype html>
     <input id="file" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" multiple hidden>
   </div>
 
-  <details class="card">
-    <summary>Settings</summary>
+  <details class="card settings-panel" id="epub-settings" open>
+    <summary>EPUB settings</summary>
     <div class="grid">
-      <label style="grid-column: 1 / -1">Preset
-        <select id="preset">
+      <label style="grid-column:1 / -1">Preset
+        <select id="epub_preset">
           <option value="glo">Kobo Glo / black-and-white e-ink (768 x 1024, grayscale)</option>
           <option value="color">Colour screen, tablet or phone (1200 x 1600)</option>
           <option value="custom">Custom values</option>
         </select>
       </label>
-      <label>Maximum width (px)<input id="width" type="number" value="768" min="200" max="4000"></label>
-      <label>Maximum height (px)<input id="height" type="number" value="1024" min="200" max="6000"></label>
-      <label>JPEG quality (10-100)<input id="quality" type="number" value="75" min="10" max="100"></label>
-      <label>Only process images larger than (kB)<input id="min_kb" type="number" value="50" min="1" max="10000"></label>
+      <label>Maximum width (px)<input id="epub_width" type="number" value="768" min="200" max="4000"></label>
+      <label>Maximum height (px)<input id="epub_height" type="number" value="1024" min="200" max="6000"></label>
+      <label>JPEG quality (10-100)<input id="epub_quality" type="number" value="75" min="10" max="100"></label>
+      <label>Only process images larger than (kB)<input id="epub_min_kb" type="number" value="50" min="1" max="10000"></label>
     </div>
-    <label class="check"><input id="gray" type="checkbox" checked> Grayscale (smaller; no loss on a black-and-white screen)</label>
-    <p class="hint">These image dimensions apply to EPUB images and PDF E-reader mode. Images in EPUBs are never enlarged.</p>
-    <div class="pdf-settings">
-      <div class="pdf-heading">PDF settings</div>
-      <div class="grid">
-        <label style="grid-column: 1 / -1">PDF processing mode
-          <select id="pdf_mode">
-            <option value="optimize">Optimize PDF (keep text selectable)</option>
-            <option value="ereader">E-reader mode (convert pages to images)</option>
-          </select>
-        </label>
-        <label id="pdf-dpi-wrap">Embedded image resolution (DPI)
-          <input id="pdf_dpi" type="number" value="150" min="72" max="600">
-        </label>
-      </div>
-      <p class="hint" id="pdf-mode-hint">Optimize PDF compresses embedded images while keeping text and vector graphics selectable. Digital signatures may no longer be valid.</p>
-    </div>
-    <p class="hint">Your original files are never modified. Uploads are processed in temporary folders and deleted afterwards.</p>
+    <label class="check"><input id="epub_gray" type="checkbox" checked> Grayscale (smaller; no loss on a black-and-white screen)</label>
+    <p class="hint">These settings apply only to EPUB files. Images are never enlarged.</p>
   </details>
+
+  <details class="card settings-panel" id="pdf-settings">
+    <summary>PDF settings</summary>
+    <div class="grid">
+      <label style="grid-column:1 / -1">PDF processing mode
+        <select id="pdf_mode">
+          <option value="optimize">Optimize PDF (keep text selectable)</option>
+          <option value="ereader">E-reader mode (convert pages to images)</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="mode-fields" id="pdf-optimize-fields">
+      <div class="section-heading">Optimize PDF</div>
+      <div class="grid">
+        <label>Embedded image resolution (DPI)<input id="pdf_dpi" type="number" value="150" min="72" max="600"></label>
+        <label>Only process images larger than (kB)<input id="pdf_min_kb" type="number" value="50" min="1" max="10000"></label>
+      </div>
+    </div>
+
+    <div class="mode-fields" id="pdf-ereader-fields" hidden>
+      <div class="section-heading">E-reader page size</div>
+      <div class="grid">
+        <label>Maximum width (px)<input id="pdf_width" type="number" value="768" min="200" max="4000"></label>
+        <label>Maximum height (px)<input id="pdf_height" type="number" value="1024" min="200" max="6000"></label>
+      </div>
+    </div>
+
+    <div class="grid">
+      <label>JPEG quality (10-100)<input id="pdf_quality" type="number" value="75" min="10" max="100"></label>
+    </div>
+    <label class="check"><input id="pdf_gray" type="checkbox"> Grayscale</label>
+    <p class="hint" id="pdf-mode-hint">Optimize PDF compresses embedded images while preserving selectable text and vector graphics. Digital signatures may no longer be valid, and some interactive features may change.</p>
+    <p class="hint">These settings apply only to PDF files and are independent of EPUB settings.</p>
+  </details>
+
+  <p class="hint">Your original files are never modified. Uploads are processed in temporary folders and deleted afterwards.</p>
 
   <div class="card" id="results" hidden>
     <div class="history-header">
@@ -599,168 +639,226 @@ const $ = (id) => document.getElementById(id);
 const drop = $("drop"), fileInput = $("file"), list = $("list"), results = $("results");
 const clearButton = $("clear-history");
 const pdfMode = $("pdf_mode");
-const pdfDpiWrap = $("pdf-dpi-wrap");
+const pdfOptimizeFields = $("pdf-optimize-fields");
+const pdfEreaderFields = $("pdf-ereader-fields");
 const pdfModeHint = $("pdf-mode-hint");
+const SETTINGS_KEY = "inkslim.preferences.v1";
 
 const PRESETS = {
-  glo:   { width: 768,  height: 1024, quality: 75, min_kb: 50, gray: true },
-  color: { width: 1200, height: 1600, quality: 80, min_kb: 50, gray: false },
+  glo: {width:768,height:1024,quality:75,min_kb:50,gray:true},
+  color: {width:1200,height:1600,quality:80,min_kb:50,gray:false}
 };
+const SETTING_IDS = [
+  "epub_preset","epub_width","epub_height","epub_quality","epub_min_kb","epub_gray",
+  "pdf_mode","pdf_dpi","pdf_min_kb","pdf_width","pdf_height","pdf_quality","pdf_gray"
+];
+const PANEL_IDS = ["epub-settings","pdf-settings"];
 
-$("preset").addEventListener("change", (e) => {
-  const p = PRESETS[e.target.value];
-  if (!p) return;
-  for (const k of ["width", "height", "quality", "min_kb"]) $(k).value = p[k];
-  $("gray").checked = p.gray;
-});
-
-for (const k of ["width", "height", "quality", "min_kb", "gray"]) {
-  $(k).addEventListener("input", () => { $("preset").value = "custom"; });
+function loadPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    for (const id of SETTING_IDS) {
+      if (!(id in (saved.values || {}))) continue;
+      const element = $(id);
+      if (element.type === "checkbox") element.checked = Boolean(saved.values[id]);
+      else element.value = String(saved.values[id]);
+    }
+    for (const id of PANEL_IDS) {
+      if (typeof saved.panels?.[id] === "boolean") $(id).open = saved.panels[id];
+    }
+  } catch (error) {
+    console.warn("Could not restore Inkslim preferences:", error);
+  }
 }
+function savePreferences() {
+  const values = {};
+  for (const id of SETTING_IDS) {
+    const element = $(id);
+    values[id] = element.type === "checkbox" ? element.checked : element.value;
+  }
+  const panels = Object.fromEntries(PANEL_IDS.map(id => [id,$(id).open]));
+  try {
+    localStorage.setItem(SETTINGS_KEY,JSON.stringify({values,panels}));
+  } catch (error) {
+    console.warn("Could not save Inkslim preferences:", error);
+  }
+}
+loadPreferences();
+
+function applyEpubPreset() {
+  const preset = PRESETS[$("epub_preset").value];
+  if (preset) {
+    $("epub_width").value = preset.width;
+    $("epub_height").value = preset.height;
+    $("epub_quality").value = preset.quality;
+    $("epub_min_kb").value = preset.min_kb;
+    $("epub_gray").checked = preset.gray;
+  }
+  savePreferences();
+}
+$("epub_preset").addEventListener("change",applyEpubPreset);
+
+for (const id of SETTING_IDS) {
+  const element = $(id);
+  element.addEventListener("input",() => {
+    if (id.startsWith("epub_") && id !== "epub_preset") $("epub_preset").value = "custom";
+    savePreferences();
+  });
+  element.addEventListener("change",() => {
+    if (id.startsWith("epub_") && id !== "epub_preset") $("epub_preset").value = "custom";
+    updatePdfControls();
+    savePreferences();
+  });
+}
+for (const id of PANEL_IDS) $(id).addEventListener("toggle",savePreferences);
 
 function updatePdfControls() {
-  const ereader = pdfMode.value === "ereader";
-  pdfDpiWrap.hidden = ereader;
-  pdfModeHint.textContent = ereader
-    ? "E-reader mode renders each page as an image sized to the selected maximum dimensions (try 1200 x 1600 for sharper text when you zoom). Best for scanned books and comics; text-based PDFs usually get larger. Text search and selection, links, bookmarks, forms and signature validation are not retained."
-    : "Optimize PDF compresses embedded images while keeping text and vector graphics selectable. Digital signatures may no longer be valid, and some interactive features may change.";
+  const optimize = pdfMode.value === "optimize";
+  pdfOptimizeFields.hidden = !optimize;
+  pdfEreaderFields.hidden = optimize;
+  pdfModeHint.textContent = optimize
+    ? "Optimize PDF compresses embedded images while preserving selectable text and vector graphics. Digital signatures may no longer be valid, and some interactive features may change."
+    : "E-reader mode renders every page as an image at the selected dimensions. Best for scanned books and comics; text-based PDFs usually get larger. Text selection, search, links, bookmarks, forms and signature validation are not retained.";
 }
-pdfMode.addEventListener("change", updatePdfControls);
 updatePdfControls();
 
-drop.addEventListener("click", () => fileInput.click());
-drop.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
+drop.addEventListener("click",() => fileInput.click());
+drop.addEventListener("keydown",(event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
     fileInput.click();
   }
 });
-
-for (const ev of ["dragenter", "dragover"]) {
-  drop.addEventListener(ev, (e) => {
-    e.preventDefault();
+for (const eventName of ["dragenter","dragover"]) {
+  drop.addEventListener(eventName,(event) => {
+    event.preventDefault();
     drop.classList.add("over");
   });
 }
-for (const ev of ["dragleave", "drop"]) {
-  drop.addEventListener(ev, (e) => {
-    e.preventDefault();
+for (const eventName of ["dragleave","drop"]) {
+  drop.addEventListener(eventName,(event) => {
+    event.preventDefault();
     drop.classList.remove("over");
   });
 }
-
-drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
-fileInput.addEventListener("change", () => {
+drop.addEventListener("drop",(event) => addFiles(event.dataTransfer.files));
+fileInput.addEventListener("change",() => {
   addFiles(fileInput.files);
   fileInput.value = "";
 });
 
 function fmt(bytes) {
   if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
-  return Math.max(1, Math.round(bytes / 1024)) + " KB";
+  return Math.max(1,Math.round(bytes / 1024)) + " KB";
 }
-
 function outName(name) {
-  const match = name.match(/\\.(epub|pdf)$/i);
-  const extension = match ? match[1].toLowerCase() : "epub";
-  return name.replace(/\\.(epub|pdf)$/i, "") + "-small." + extension;
+  const extension = name.toLowerCase().endsWith(".pdf") ? ".pdf" : ".epub";
+  return name.slice(0,-extension.length) + "-small" + extension;
 }
-
 const queue = [];
 let busy = false;
 
+function settingsForFile(file) {
+  if (file.name.toLowerCase().endsWith(".pdf")) {
+    return {
+      width:$("pdf_width").value,
+      height:$("pdf_height").value,
+      quality:$("pdf_quality").value,
+      min_kb:$("pdf_min_kb").value,
+      gray:$("pdf_gray").checked ? "1" : "0",
+      pdf_mode:pdfMode.value,
+      pdf_dpi:$("pdf_dpi").value
+    };
+  }
+  return {
+    width:$("epub_width").value,
+    height:$("epub_height").value,
+    quality:$("epub_quality").value,
+    min_kb:$("epub_min_kb").value,
+    gray:$("epub_gray").checked ? "1" : "0"
+  };
+}
 function updateHistory() {
   results.hidden = list.children.length === 0;
   clearButton.disabled = !list.querySelector('li[data-state="done"], li[data-state="error"]');
 }
-
 function clearHistory() {
-  // Keep queued and running jobs visible; clear only completed or failed entries.
-  const finishedItems = list.querySelectorAll('li[data-state="done"], li[data-state="error"]');
-  for (const li of finishedItems) {
-    const download = li.querySelector("a.btn");
-    if (download && download.href.startsWith("blob:")) {
-      URL.revokeObjectURL(download.href);
-    }
-    li.remove();
+  const finished = list.querySelectorAll('li[data-state="done"], li[data-state="error"]');
+  for (const item of finished) {
+    const link = item.querySelector("a.btn");
+    if (link && link.href.startsWith("blob:")) URL.revokeObjectURL(link.href);
+    item.remove();
   }
   updateHistory();
 }
-
-clearButton.addEventListener("click", clearHistory);
+clearButton.addEventListener("click",clearHistory);
 
 function addFiles(files) {
-  for (const f of files) {
-    if (!/\\.(epub|pdf)$/i.test(f.name)) continue;
-    const li = document.createElement("li");
-    li.dataset.state = "queued";
-    li.innerHTML = '<div class="name"></div><div class="meta"></div>';
-    li.querySelector(".name").textContent = f.name;
-    list.appendChild(li);
-    queue.push({ file: f, li });
-    setMeta(li, "Queued... (" + fmt(f.size) + ")", false, "queued");
+  for (const file of files) {
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".epub") && !name.endsWith(".pdf")) continue;
+    const item = document.createElement("li");
+    item.dataset.state = "queued";
+    item.innerHTML = '<div class="name"></div><div class="meta"></div>';
+    item.querySelector(".name").textContent = file.name;
+    list.appendChild(item);
+    // Capture settings when enqueued so mixed batches use the correct profile.
+    queue.push({file,li:item,settings:settingsForFile(file)});
+    setMeta(item,"Queued... (" + fmt(file.size) + ")",false,"queued");
   }
   updateHistory();
   next();
 }
-
-function setMeta(li, text, isErr, state) {
-  const m = li.querySelector(".meta");
-  if (!m) return;
-  m.textContent = text;
-  m.classList.toggle("err", !!isErr);
-  if (state) li.dataset.state = state;
+function setMeta(item,message,isError,state) {
+  const meta = item.querySelector(".meta");
+  if (!meta) return;
+  meta.textContent = message;
+  meta.classList.toggle("err",Boolean(isError));
+  if (state) item.dataset.state = state;
   updateHistory();
 }
-
 function next() {
   if (busy || !queue.length) return;
   busy = true;
-  const { file, li } = queue.shift();
+  const {file,li,settings} = queue.shift();
   const form = new FormData();
-  form.append("file", file);
-  for (const k of ["width", "height", "quality", "min_kb"]) form.append(k, $(k).value);
-  form.append("gray", $("gray").checked ? "1" : "0");
-  form.append("pdf_mode", pdfMode.value);
-  form.append("pdf_dpi", $("pdf_dpi").value);
+  form.append("file",file);
+  for (const [key,value] of Object.entries(settings)) form.append(key,value);
 
   const bar = document.createElement("progress");
   bar.max = 100;
   bar.value = 0;
   li.appendChild(bar);
-  setMeta(li, "Uploading...", false, "uploading");
+  setMeta(li,"Uploading...",false,"uploading");
 
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", "shrink");
+  xhr.open("POST","shrink");
   xhr.responseType = "blob";
-  xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) bar.value = (e.loaded / e.total) * 100;
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable) bar.value = (event.loaded / event.total) * 100;
   };
   xhr.upload.onload = () => {
     bar.removeAttribute("value");
-    setMeta(li, "Processing... this may take a moment.", false, "processing");
+    setMeta(li,"Processing... this may take a moment.",false,"processing");
   };
   xhr.onload = async () => {
     bar.remove();
     if (xhr.status === 200) {
       const before = Number(xhr.getResponseHeader("X-Original-Size")) || file.size;
       const after = Number(xhr.getResponseHeader("X-New-Size")) || xhr.response.size;
-      const pct = Math.round(100 - (after / before) * 100);
-      const change = pct > 0 ? `(-${pct}%)` : pct < 0 ? `(+${Math.abs(pct)}% larger)` : "(same size)";
-      setMeta(li, fmt(before) + " \\u2192 " + fmt(after) + "  " + change, false, "done");
-
-      const a = document.createElement("a");
-      a.className = "btn";
-      a.textContent = "Download";
-      a.href = URL.createObjectURL(xhr.response);
-      a.download = outName(file.name);
-      li.appendChild(a);
+      const percent = Math.round(100 - (after / before) * 100);
+      const change = percent > 0 ? "(-" + percent + "%)" : percent < 0 ? "(+" + Math.abs(percent) + "% larger)" : "(same size)";
+      setMeta(li,fmt(before) + " → " + fmt(after) + "  " + change,false,"done");
+      const link = document.createElement("a");
+      link.className = "btn";
+      link.textContent = "Download";
+      link.href = URL.createObjectURL(xhr.response);
+      link.download = outName(file.name);
+      li.appendChild(link);
     } else {
-      let msg = "Failed (" + xhr.status + ").";
-      try {
-        msg = JSON.parse(await xhr.response.text()).error || msg;
-      } catch (_) {}
-      setMeta(li, msg, true, "error");
+      let message = "Failed (" + xhr.status + ").";
+      try { message = JSON.parse(await xhr.response.text()).error || message; } catch (_) {}
+      setMeta(li,message,true,"error");
     }
     busy = false;
     updateHistory();
@@ -768,7 +866,7 @@ function next() {
   };
   xhr.onerror = () => {
     bar.remove();
-    setMeta(li, "Connection lost.", true, "error");
+    setMeta(li,"Connection lost.",true,"error");
     busy = false;
     updateHistory();
     next();
