@@ -101,6 +101,7 @@ def render_pdf_page(
     try:
         bitmap = page.render(
             scale=plan.actual_dpi / 72.0,
+            rotation=page_rotation,
             fill_color=(255, 255, 255, 255),
             grayscale=False,
             limit_image_cache=True,

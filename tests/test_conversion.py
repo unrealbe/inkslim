@@ -645,3 +645,36 @@ def test_unknown_page_analysis_checkpoint_is_quarantined(store, tmp_path):
         (workspace.analysis_dir / "quarantine").glob("*.unknown-version.*.json")
     )
     assert len(quarantined) == 1
+
+
+
+def test_renderer_applies_pdf_page_rotation_and_matches_render_plan(tmp_path):
+    import pikepdf
+    import pypdfium2 as pdfium
+    from reportlab.pdfgen import canvas
+    from PIL import Image
+
+    pdf_path = tmp_path / "rotated-scan.pdf"
+    page_canvas = canvas.Canvas(str(pdf_path), pagesize=(200, 300))
+    page_canvas.drawString(20, 260, "Scanned content")
+    page_canvas.showPage()
+    page_canvas.save()
+
+    rotated_path = tmp_path / "rotated.pdf"
+    with pikepdf.open(pdf_path) as pdf:
+        pdf.pages[0].obj["/Rotate"] = 90
+        pdf.save(rotated_path)
+
+    destination = tmp_path / "rendered" / "000001.png"
+    limits = PDFRenderLimits(dpi=150, minimum_dpi=120)
+    with pdfium.PdfDocument(str(rotated_path)) as document:
+        page = document[0]
+        try:
+            plan = render_pdf_page(page, destination, limits=limits)
+            assert page.get_rotation() == 90
+        finally:
+            page.close()
+
+    with Image.open(destination) as rendered:
+        assert rendered.size == (plan.width_px, plan.height_px)
+    assert plan.width_px > plan.height_px
