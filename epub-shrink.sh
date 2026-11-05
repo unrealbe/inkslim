@@ -1,36 +1,46 @@
 #!/usr/bin/env bash
 #
-# epub-shrink.sh - verklein de afbeeldingen in een of meer EPUB's
+# epub-shrink.sh - shrink the images inside one or more EPUB files
 #
-# Gebaseerd op het idee van rinze/reduce_ebook_size (uitpakken, afbeeldingen
-# verkleinen, opnieuw inpakken), met deze verbeteringen:
-#   - verkleint nooit op (alleen "WxH>"), en bewaart een afbeelding alleen
-#     als het resultaat echt kleiner is dan het origineel
-#   - hoofdletterongevoelig (.jpg .JPG .jpeg .png .PNG)
-#   - bouwt de epub volgens de standaard opnieuw op: 'mimetype' als eerste
-#     bestand en ongecomprimeerd, de rest met maximale compressie
-#   - kan meerdere epubs in een keer aan (ook met spaties in de naam)
-#   - optioneel grijswaarden (de Kobo Glo heeft een zwart-wit scherm)
-#   - controleert het resultaat voordat het bewaard wordt
-#   - het origineel wordt NOOIT aangeraakt of overschreven
+# Based on the idea behind rinze/reduce_ebook_size (unzip, shrink the images,
+# zip again), with these improvements:
+#   - never enlarges images (only "WxH>"), and keeps an image only when the
+#     result is really smaller than the original
+#   - case-insensitive (.jpg .JPG .jpeg .png .PNG)
+#   - repacks the EPUB according to the standard: 'mimetype' first and stored
+#     uncompressed, everything else deflated at maximum compression
+#   - handles several EPUBs in one run (including names with spaces)
+#   - optional grayscale (the Kobo Glo has a black-and-white screen)
+#   - verifies the result before keeping it
+#   - the original is NEVER touched or overwritten
 #
-# Standaardwaarden zijn gekozen voor een Kobo Glo (scherm 768x1024).
+# Defaults are chosen for a Kobo Glo (768x1024 screen).
 #
-# Gebruik:
-#   epub-shrink.sh [opties] boek1.epub [boek2.epub ...]
+# Usage:
+#   epub-shrink.sh [options] book1.epub [book2.epub ...]
 #
-# Opties:
-#   -w BREEDTE    maximale breedte in pixels      (standaard 768)
-#   -h HOOGTE     maximale hoogte in pixels       (standaard 1024)
-#   -q KWALITEIT  jpeg-kwaliteit 1-100            (standaard 75)
-#   -m KB         alleen afbeeldingen groter dan dit aanpassen (standaard 50)
-#   -g            grijswaarden (kleiner, geschikt voor e-ink zonder kleur)
-#   -o MAP        schrijf resultaat naar deze map (standaard: naast origineel)
-#   -s SUFFIX     toevoeging aan de bestandsnaam  (standaard "-small")
-#   -n            droog oefenen: toon alleen wat er zou gebeuren
-#   -?            deze hulp
+# Options:
+#   -w WIDTH      maximum width in pixels         (default 768)
+#   -h HEIGHT     maximum height in pixels        (default 1024)
+#   -q QUALITY    JPEG quality 1-100              (default 75)
+#   -m KB         only touch images larger than this (default 50)
+#   -g            grayscale (smaller; fine for e-ink without colour)
+#   -o DIR        write results to this folder    (default: next to the original)
+#   -s SUFFIX     suffix added to the file name   (default "-small")
+#   -n            dry run: only show what would happen
+#   -?            this help
 #
-# Vereist: imagemagick, zip, unzip   (sudo apt install imagemagick zip unzip)
+# Exit codes:
+#   0  at least one file was written (or a dry run finished)
+#   1  usage error or a required program is missing
+#   2  no gain: nothing was saved because the result was not smaller
+#   3  not a valid EPUB
+#   4  the new file failed verification, nothing was saved
+#   5  input file not found
+# When several files are given, the exit code of the last problem is used,
+# unless at least one file was written.
+#
+# Requires: imagemagick, zip, unzip   (sudo apt install imagemagick zip unzip)
 
 set -euo pipefail
 
@@ -65,24 +75,24 @@ if [[ $# -eq 0 ]]; then
     exit 1
 fi
 
-# Controleer of de nodige programma's er zijn.
+# Check that the required programs are installed.
 for cmd in zip unzip stat; do
-    command -v "$cmd" >/dev/null || { echo "Ontbreekt: $cmd" >&2; exit 1; }
+    command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 1; }
 done
-# ImageMagick 7 heet 'magick', ImageMagick 6 heet 'convert'.
+# ImageMagick 7 is called 'magick', ImageMagick 6 is called 'convert'.
 if command -v magick >/dev/null; then
     IM=(magick)
 elif command -v convert >/dev/null; then
     IM=(convert)
 else
-    echo "Ontbreekt: imagemagick (sudo apt install imagemagick)" >&2
+    echo "Missing: imagemagick (sudo apt install imagemagick)" >&2
     exit 1
 fi
 
 human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "$1 B"; }
 
 shrink_image() {
-    # Verklein een afbeelding; houd het resultaat alleen als het kleiner is.
+    # Shrink one image; keep the result only if it is smaller.
     local f="$1" ext tmp before after
     ext="${f##*.}"
     ext="${ext,,}"
@@ -103,7 +113,7 @@ shrink_image() {
 
     if ! "${IM[@]}" "$f" "${args[@]}" "$tmp" 2>/dev/null; then
         rm -f "$tmp"
-        return 0   # onleesbaar of vreemd bestand: ongemoeid laten
+        return 0   # unreadable or unusual file: leave it alone
     fi
 
     after=$(stat -c%s "$tmp")
@@ -116,10 +126,13 @@ shrink_image() {
 
 total_in=0
 total_out=0
+saved_any=0
+problem=0   # exit code of the last problem, see the header
 
 for input in "$@"; do
     if [[ ! -f "$input" ]]; then
-        echo "Overgeslagen (niet gevonden): $input" >&2
+        echo "Skipped (not found): $input" >&2
+        problem=5
         continue
     fi
 
@@ -131,7 +144,8 @@ for input in "$@"; do
     dest="$(realpath "$dest_dir")/${base}${SUFFIX}.epub"
 
     if [[ "$dest" == "$src" ]]; then
-        echo "Overgeslagen (zou het origineel overschrijven): $name" >&2
+        echo "Skipped (would overwrite the original): $name" >&2
+        problem=1
         continue
     fi
 
@@ -140,10 +154,9 @@ for input in "$@"; do
     trap cleanup EXIT
 
     echo "== $name"
-    unzip -q "$src" -d "$work"
-
-    if [[ ! -f "$work/mimetype" ]]; then
-        echo "   Waarschuwing: geen 'mimetype'-bestand, dit lijkt geen geldige epub. Overgeslagen." >&2
+    if ! unzip -q "$src" -d "$work" 2>/dev/null || [[ ! -f "$work/mimetype" ]]; then
+        echo "   Not a valid EPUB. Skipped." >&2
+        problem=3
         rm -rf "$work"
         trap - EXIT
         continue
@@ -153,7 +166,7 @@ for input in "$@"; do
     while IFS= read -r -d '' img; do
         count=$((count + 1))
         if [[ $DRY -eq 1 ]]; then
-            echo "   zou verkleinen: ${img#"$work"/}"
+            echo "   would shrink: ${img#"$work"/}"
         else
             shrink_image "$img"
         fi
@@ -161,22 +174,23 @@ for input in "$@"; do
                   -size +"${MIN_KB}"k -print0)
 
     if [[ $DRY -eq 1 ]]; then
-        echo "   ${count} afbeelding(en) groter dan ${MIN_KB} kB gevonden"
+        echo "   ${count} image(s) larger than ${MIN_KB} kB found"
         rm -rf "$work"
         trap - EXIT
         continue
     fi
 
-    # Opnieuw inpakken volgens de epub-regels.
+    # Repack according to the EPUB rules.
     tmp_out="$(mktemp -u "${dest}.XXXXXX")"
     ( cd "$work" \
         && zip -X0 -q "$tmp_out" mimetype \
         && zip -Xr9D -q "$tmp_out" . -x mimetype )
 
-    # Controleer het resultaat.
+    # Verify the result.
     first="$(unzip -Z1 "$tmp_out" | sed -n 1p)"
     if ! unzip -tq "$tmp_out" >/dev/null 2>&1 || [[ "$first" != "mimetype" ]]; then
-        echo "   MISLUKT: het nieuwe bestand klopt niet, niets bewaard." >&2
+        echo "   FAILED: the new file did not pass verification, nothing saved." >&2
+        problem=4
         rm -f "$tmp_out"
         rm -rf "$work"
         trap - EXIT
@@ -187,7 +201,8 @@ for input in "$@"; do
     size_out=$(stat -c%s "$tmp_out")
 
     if (( size_out >= size_in )); then
-        echo "   Geen winst ($(human "$size_in") -> $(human "$size_out")), niets bewaard."
+        echo "   No gain ($(human "$size_in") -> $(human "$size_out")), nothing saved."
+        problem=2
         rm -f "$tmp_out"
     else
         mv -f "$tmp_out" "$dest"
@@ -195,6 +210,7 @@ for input in "$@"; do
         echo "   $(human "$size_in") -> $(human "$size_out")  (-${pct}%)  => $dest"
         total_in=$((total_in + size_in))
         total_out=$((total_out + size_out))
+        saved_any=1
     fi
 
     rm -rf "$work"
@@ -203,5 +219,10 @@ done
 
 if (( total_in > 0 )); then
     echo
-    echo "Totaal: $(human "$total_in") -> $(human "$total_out")"
+    echo "Total: $(human "$total_in") -> $(human "$total_out")"
 fi
+
+if [[ $DRY -eq 1 || $saved_any -eq 1 ]]; then
+    exit 0
+fi
+exit "$problem"
