@@ -34,9 +34,14 @@ MAX_MB = int(os.environ.get("MAX_UPLOAD_MB", "500"))
 MAX_EXTRACTED_MB = int(os.environ.get("MAX_EXTRACTED_MB", "1000"))
 MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "5000"))
 TIMEOUT = int(os.environ.get("SHRINK_TIMEOUT", "840"))
-SCRIPT = os.environ.get(
-    "SHRINK_SCRIPT", str(Path(__file__).with_name("epub-shrink.sh"))
-)
+SCRIPT = Path(
+    os.environ.get(
+        "SHRINK_SCRIPT", str(Path(__file__).with_name("epub-shrink.sh"))
+    )
+).expanduser().resolve()
+
+if not SCRIPT.is_file():
+    raise RuntimeError(f"epub-shrink.sh not found at {SCRIPT}")
 AUTH_USER = os.environ.get("BASIC_AUTH_USER", "")
 AUTH_PASS = os.environ.get("BASIC_AUTH_PASS", "")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
