@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from .models import Job
+from .models import Job, JobStatus
 from .storage import JobStore, JobWorkspace
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,20 @@ class JobCancelled(Exception):
     """Raised by a processor when cancellation is observed between pages."""
 
 
+class JobProcessingError(Exception):
+    """A safe, user-facing processing failure with a stable error code."""
+
+    def __init__(self, error_code: str, public_message: str):
+        super().__init__(public_message)
+        self.error_code = error_code
+        self.public_message = public_message
+
+
 @dataclass(slots=True)
 class JobExecutionResult:
     output_path: Path | None = None
     report_path: Path | None = None
+    next_status: JobStatus = JobStatus.COMPLETED
 
 
 class JobProcessor(Protocol):
@@ -66,13 +76,26 @@ class ConversionWorker:
                 self.store.mark_cancelled(job.id)
             else:
                 result = result or JobExecutionResult()
-                self.store.complete_job(
-                    job.id,
-                    output_path=result.output_path,
-                    report_path=result.report_path,
-                )
+                if result.next_status is JobStatus.READY_FOR_OCR:
+                    self.store.mark_ready_for_ocr(job.id)
+                elif result.next_status is JobStatus.COMPLETED:
+                    self.store.complete_job(
+                        job.id,
+                        output_path=result.output_path,
+                        report_path=result.report_path,
+                    )
+                else:
+                    raise ValueError("Worker processor returned an unsupported next status")
         except JobCancelled:
             self.store.mark_cancelled(job.id)
+        except JobProcessingError as exc:
+            logger.warning(
+                "Conversion job %s failed (%s): %s", job.id, exc.error_code, exc
+            )
+            if self.store.is_cancel_requested(job.id):
+                self.store.mark_cancelled(job.id)
+            else:
+                self.store.fail_job(job.id, exc.error_code, exc.public_message)
         except Exception:
             logger.exception("Conversion job %s failed", job.id)
             if self.store.is_cancel_requested(job.id):

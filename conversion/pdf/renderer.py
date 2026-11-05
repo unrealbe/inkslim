@@ -85,11 +85,9 @@ def render_pdf_page(
     """Render one page to PNG, verifying the resulting dimensions before committing it."""
     limits = limits or PDFRenderLimits()
     width_points, height_points = page.get_size()
-    page_rotation = int(page.get_rotation())
     plan = plan or build_render_plan(
         width_points,
         height_points,
-        rotation=page_rotation,
         limits=limits,
     )
 
@@ -101,7 +99,6 @@ def render_pdf_page(
     try:
         bitmap = page.render(
             scale=plan.actual_dpi / 72.0,
-            rotation=page_rotation,
             fill_color=(255, 255, 255, 255),
             grayscale=False,
             limit_image_cache=True,

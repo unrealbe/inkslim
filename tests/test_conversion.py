@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -678,3 +679,69 @@ def test_renderer_applies_pdf_page_rotation_and_matches_render_plan(tmp_path):
     with Image.open(destination) as rendered:
         assert rendered.size == (plan.width_px, plan.height_px)
     assert plan.width_px > plan.height_px
+
+
+
+def test_old_sqlite_jobs_schema_is_migrated_without_losing_existing_jobs(tmp_path):
+    database = tmp_path / "legacy.sqlite3"
+    jobs_dir = tmp_path / "jobs"
+    job_id = "12345678-1234-5678-1234-567812345678"
+
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """
+        CREATE TABLE jobs (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK (status IN (
+                'queued', 'analyzing', 'extracting', 'ocr', 'postprocessing',
+                'building_epub', 'validating', 'completed', 'failed', 'cancelled'
+            )),
+            input_name TEXT NOT NULL,
+            input_path TEXT NOT NULL,
+            output_path TEXT,
+            report_path TEXT,
+            language TEXT NOT NULL,
+            total_pages INTEGER,
+            completed_pages INTEGER NOT NULL DEFAULT 0,
+            current_page INTEGER,
+            progress_message TEXT,
+            cancellation_requested INTEGER NOT NULL DEFAULT 0,
+            worker_id TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            expires_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """INSERT INTO jobs
+           (id, status, input_name, input_path, language, created_at, updated_at)
+           VALUES (?, 'queued', ?, ?, 'nld+eng', '2026-11-01T00:00:00+00:00',
+                   '2026-11-01T00:00:00+00:00')""",
+        (job_id, "legacy.pdf", "/old/jobs/original.pdf"),
+    )
+    connection.execute("CREATE INDEX idx_jobs_queue ON jobs(status, created_at)")
+    connection.commit()
+    connection.close()
+
+    store = JobStore(database, jobs_dir)
+
+    preserved = store.get_job(job_id)
+    assert preserved is not None
+    assert preserved.status is JobStatus.QUEUED
+    assert preserved.input_name == "legacy.pdf"
+
+    connection = sqlite3.connect(database)
+    schema = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
+    ).fetchone()[0]
+    connection.close()
+    assert "ready_for_ocr" in schema
+
+    assert store.claim_next_job("migration-test-worker") is not None
+    assert store.mark_ready_for_ocr(job_id) is True
+    assert store.get_job(job_id).status is JobStatus.READY_FOR_OCR

@@ -1,6 +1,7 @@
 """PDF-specific analysis, native text extraction and guarded rendering."""
 
-from .analyzer import PdfAnalysisError, analyze_pdf
+from .analyzer import PdfAnalysisError, analyze_pdf, analyze_pdf_page, open_pdf_document
+from .processor import PdfAnalysisJobProcessor
 from .models import PageAnalysis, PageDecision
 from .renderer import (
     PDFRenderLimits,
@@ -15,9 +16,12 @@ __all__ = [
     "PageDecision",
     "PDFRenderLimits",
     "PdfAnalysisError",
+    "PdfAnalysisJobProcessor",
     "RenderPlan",
     "RenderPlanError",
     "analyze_pdf",
+    "analyze_pdf_page",
+    "open_pdf_document",
     "build_render_plan",
     "render_pdf_page",
 ]

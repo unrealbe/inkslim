@@ -31,6 +31,7 @@ class QualityStatus(StrEnum):
 class JobStatus(StrEnum):
     QUEUED = "queued"
     ANALYZING = "analyzing"
+    READY_FOR_OCR = "ready_for_ocr"
     EXTRACTING = "extracting"
     OCR = "ocr"
     POSTPROCESSING = "postprocessing"

@@ -45,6 +45,7 @@ class PageAnalysis:
     has_native_text: bool
     native_text_quality: float | None
     decision: PageDecision
+    rotation: int = 0
     meaningful_character_ratio: float | None = None
     control_character_ratio: float | None = None
     replacement_character_ratio: float | None = None
@@ -63,6 +64,8 @@ class PageAnalysis:
         self.height = _finite(self.height, "height")
         if self.width <= 0 or self.height <= 0:
             raise ValueError("page dimensions must be positive")
+        if self.rotation not in {0, 90, 180, 270}:
+            raise ValueError("rotation must be 0, 90, 180 or 270 degrees")
         for name in ("character_count", "word_count", "image_count", "meaningful_character_count"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} cannot be negative")
@@ -117,6 +120,7 @@ class PageAnalysis:
             width=float(value["width"]),
             height=float(value["height"]),
             character_count=int(value["character_count"]),
+            rotation=int(value.get("rotation", 0)),
             word_count=int(value["word_count"]),
             image_count=int(value["image_count"]),
             has_native_text=bool(value["has_native_text"]),

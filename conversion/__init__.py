@@ -10,7 +10,12 @@ from .models import (
     TextSource,
 )
 from .storage import JobNotFoundError, JobStore, JobWorkspace
-from .worker import ConversionWorker, JobCancelled, JobExecutionResult
+from .worker import (
+    ConversionWorker,
+    JobCancelled,
+    JobExecutionResult,
+    JobProcessingError,
+)
 
 __all__ = [
     "ConversionWorker",

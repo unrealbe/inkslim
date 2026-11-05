@@ -153,6 +153,14 @@ class JobWorkspace:
                 "Could not quarantine %s checkpoint for page %d", kind, page_number
             )
 
+    def completed_analysis_count(self, total_pages: int) -> int:
+        if total_pages < 0:
+            raise ValueError("total_pages cannot be negative")
+        return sum(
+            self.load_page_analysis(page_number) is not None
+            for page_number in range(1, total_pages + 1)
+        )
+
     def first_missing_page(self, total_pages: int) -> int:
         if total_pages < 0:
             raise ValueError("total_pages cannot be negative")
@@ -213,37 +221,81 @@ class JobStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    status TEXT NOT NULL CHECK (status IN (
-                        'queued', 'analyzing', 'extracting', 'ocr', 'postprocessing',
-                        'building_epub', 'validating', 'completed', 'failed', 'cancelled'
-                    )),
-                    input_name TEXT NOT NULL,
-                    input_path TEXT NOT NULL,
-                    output_path TEXT,
-                    report_path TEXT,
-                    language TEXT NOT NULL,
-                    total_pages INTEGER,
-                    completed_pages INTEGER NOT NULL DEFAULT 0,
-                    current_page INTEGER,
-                    progress_message TEXT,
-                    cancellation_requested INTEGER NOT NULL DEFAULT 0,
-                    worker_id TEXT,
-                    error_code TEXT,
-                    error_message TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    started_at TEXT,
-                    completed_at TEXT,
-                    expires_at TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_jobs_queue
-                    ON jobs(status, created_at);
-                """
+            self._create_jobs_table(connection, "jobs")
+            self._migrate_ready_for_ocr_status(connection)
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at)"
             )
+
+    @staticmethod
+    def _create_jobs_table(connection: sqlite3.Connection, table_name: str) -> None:
+        if table_name not in {"jobs", "jobs_v2"}:
+            raise ValueError("Invalid internal table name")
+        connection.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN (
+                    'queued', 'analyzing', 'ready_for_ocr', 'extracting', 'ocr',
+                    'postprocessing', 'building_epub', 'validating', 'completed',
+                    'failed', 'cancelled'
+                )),
+                input_name TEXT NOT NULL,
+                input_path TEXT NOT NULL,
+                output_path TEXT,
+                report_path TEXT,
+                language TEXT NOT NULL,
+                total_pages INTEGER,
+                completed_pages INTEGER NOT NULL DEFAULT 0,
+                current_page INTEGER,
+                progress_message TEXT,
+                cancellation_requested INTEGER NOT NULL DEFAULT 0,
+                worker_id TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                expires_at TEXT
+            )
+            """
+        )
+
+    def _migrate_ready_for_ocr_status(self, connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Jobs table was not created")
+        if "ready_for_ocr" in (row["sql"] or ""):
+            return
+
+        # Existing installations created before analysis was integrated have a CHECK
+        # constraint without ready_for_ocr. Rebuild while preserving all queued jobs.
+        columns = (
+            "id, status, input_name, input_path, output_path, report_path, language, "
+            "total_pages, completed_pages, current_page, progress_message, "
+            "cancellation_requested, worker_id, error_code, error_message, created_at, "
+            "updated_at, started_at, completed_at, expires_at"
+        )
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.execute("DROP INDEX IF EXISTS idx_jobs_queue")
+            connection.execute("DROP TABLE IF EXISTS jobs_v2")
+            self._create_jobs_table(connection, "jobs_v2")
+            connection.execute(
+                f"INSERT INTO jobs_v2 ({columns}) SELECT {columns} FROM jobs"
+            )
+            connection.execute("DROP TABLE jobs")
+            connection.execute("ALTER TABLE jobs_v2 RENAME TO jobs")
+            connection.execute(
+                "CREATE INDEX idx_jobs_queue ON jobs(status, created_at)"
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -401,6 +453,100 @@ class JobStore:
             connection.commit()
         return cursor.rowcount
 
+    def reconcile_analysis_progress(
+        self,
+        job_id: str,
+        *,
+        total_pages: int,
+        completed_pages: int,
+        next_page: int | None,
+    ) -> Job:
+        """Make SQLite's cached progress exactly match valid on-disk checkpoints."""
+        if total_pages < 1:
+            raise ValueError("total_pages must be at least 1")
+        if not 0 <= completed_pages <= total_pages:
+            raise ValueError("completed_pages must be within the document page count")
+        if next_page is not None and not 1 <= next_page <= total_pages:
+            raise ValueError("next_page must be within the document page count")
+        now = self._now()
+        message = (
+            f"Resuming PDF analysis at page {next_page}"
+            if next_page is not None
+            else "All PDF pages are already analyzed"
+        )
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """UPDATE jobs SET status = ?, total_pages = ?, completed_pages = ?,
+                   current_page = ?, progress_message = ?, updated_at = ?
+                   WHERE id = ? AND status = ?""",
+                (
+                    JobStatus.ANALYZING.value,
+                    total_pages,
+                    completed_pages,
+                    next_page,
+                    message,
+                    now,
+                    job_id,
+                    JobStatus.ANALYZING.value,
+                ),
+            )
+            if cursor.rowcount == 0:
+                row = self._select_job(connection, job_id)
+                if row is None:
+                    raise JobNotFoundError(job_id)
+                if JobStatus(row["status"]) is not JobStatus.ANALYZING:
+                    raise InvalidJobStateError("Job is not in the analyzing phase")
+        job = self.get_job(job_id)
+        assert job is not None
+        return job
+
+    def mark_ready_for_ocr(self, job_id: str) -> bool:
+        """Finish analysis phase without marking the overall conversion completed."""
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._select_job(connection, job_id)
+            if row is None:
+                raise JobNotFoundError(job_id)
+            if JobStatus(row["status"]) is not JobStatus.ANALYZING:
+                raise InvalidJobStateError("Only an analyzing job can become ready for OCR")
+            if row["cancellation_requested"]:
+                connection.execute(
+                    """UPDATE jobs SET status = ?, completed_at = ?, updated_at = ?,
+                       worker_id = NULL, progress_message = ? WHERE id = ?""",
+                    (JobStatus.CANCELLED.value, now, now, "Job cancelled", job_id),
+                )
+                connection.commit()
+                return False
+            connection.execute(
+                """UPDATE jobs SET status = ?, worker_id = NULL, current_page = NULL,
+                   completed_at = NULL, progress_message = ?, updated_at = ? WHERE id = ?""",
+                (JobStatus.READY_FOR_OCR.value, "PDF analysis completed", now, job_id),
+            )
+            connection.commit()
+        return True
+
+    def resume_cancelled_job(self, job_id: str) -> Job:
+        """Explicitly requeue a cancelled job, retaining its durable checkpoints."""
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._select_job(connection, job_id)
+            if row is None:
+                raise JobNotFoundError(job_id)
+            if JobStatus(row["status"]) is not JobStatus.CANCELLED:
+                raise InvalidJobStateError("Only a cancelled job can be resumed")
+            connection.execute(
+                """UPDATE jobs SET status = ?, cancellation_requested = 0,
+                   worker_id = NULL, error_code = NULL, error_message = NULL,
+                   completed_at = NULL, updated_at = ?, progress_message = ? WHERE id = ?""",
+                (JobStatus.QUEUED.value, now, "Queued for explicit resume", job_id),
+            )
+            connection.commit()
+        job = self.get_job(job_id)
+        assert job is not None
+        return job
+
     def update_progress(
         self,
         job_id: str,
@@ -465,7 +611,7 @@ class JobStore:
             if status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
                 connection.commit()
                 return False
-            if status == JobStatus.QUEUED:
+            if status in {JobStatus.QUEUED, JobStatus.READY_FOR_OCR}:
                 connection.execute(
                     """UPDATE jobs SET status = ?, completed_at = ?, updated_at = ?,
                        progress_message = ? WHERE id = ?""",
