@@ -1,2 +1,6 @@
 flask>=3.0,<4
 gunicorn>=22.0,<24
+pikepdf>=10.12,<11
+pypdfium2>=5.0,<6
+Pillow>=10,<13
+reportlab>=4,<5
