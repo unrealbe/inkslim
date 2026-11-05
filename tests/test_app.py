@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import app as webapp  # noqa: E402
+import app  # noqa: E402
 
 IM = shutil.which("magick") or shutil.which("convert")
 pytestmark = pytest.mark.skipif(
@@ -21,8 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def make_epub(path, images=()):
-    """Build a minimal, structurally correct EPUB the same way the script packs one
-    (mimetype first and stored, everything else deflated), so sizes are comparable."""
+    """Build a minimal, correctly structured EPUB for integration tests."""
     src = path.parent / (path.stem + "-src")
     (src / "META-INF").mkdir(parents=True)
     (src / "mimetype").write_bytes(b"application/epub+zip")
@@ -44,8 +43,11 @@ def make_epub(path, images=()):
 
 def make_image(tmp_path, name, size, extra=()):
     out = tmp_path / name
-    subprocess.run([IM, "-size", size, "plasma:fractal", *extra, str(out)], check=True,
-                   capture_output=True)
+    subprocess.run(
+        [IM, "-size", size, "plasma:fractal", *extra, str(out)],
+        check=True,
+        capture_output=True,
+    )
     return out.read_bytes()
 
 
@@ -53,13 +55,16 @@ def make_image(tmp_path, name, size, extra=()):
 def big_epub(tmp_path):
     jpg = make_image(tmp_path, "photo.JPG", "2400x3200", ["-quality", "95"])
     png = make_image(tmp_path, "art.png", "1800x2400")
-    return make_epub(tmp_path / "book.epub", [("img/Big Photo.JPG", jpg), ("img/art.png", png)])
+    return make_epub(
+        tmp_path / "book.epub",
+        [("img/Big Photo.JPG", jpg), ("img/art.png", png)],
+    )
 
 
 @pytest.fixture()
 def client():
-    webapp.AUTH_USER = webapp.AUTH_PASS = ""
-    return webapp.app.test_client()
+    app.AUTH_USER = app.AUTH_PASS = ""
+    return app.app.test_client()
 
 
 def post(client, content, filename="book.epub", **form):
@@ -68,65 +73,76 @@ def post(client, content, filename="book.epub", **form):
 
 
 def test_index_and_health(client):
-    assert client.get("/").status_code == 200
+    page = client.get("/")
+    assert page.status_code == 200
+    assert b"Drop your EPUB or PDF files here" in page.data
     assert client.get("/healthz").data == b"ok"
 
 
 def test_shrink_returns_smaller_valid_epub(client, big_epub):
     original = big_epub.read_bytes()
-    r = post(client, original, "Mijn Boek, deel 1.epub", gray="1")
-    assert r.status_code == 200
-    assert len(r.data) < len(original) / 2
-    assert int(r.headers["X-Original-Size"]) == len(original)
-    assert int(r.headers["X-New-Size"]) == len(r.data)
-    assert "Mijn Boek, deel 1-small.epub" in r.headers["Content-Disposition"]
-
-    with zipfile.ZipFile(io.BytesIO(r.data)) as z:
-        assert z.testzip() is None
-        first = z.infolist()[0]
+    response = post(client, original, "My Book, part 1.epub", gray="1")
+    assert response.status_code == 200
+    assert len(response.data) < len(original) / 2
+    assert int(response.headers["X-Original-Size"]) == len(original)
+    assert int(response.headers["X-New-Size"]) == len(response.data)
+    assert "My Book, part 1-small.epub" in response.headers["Content-Disposition"]
+    with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+        assert archive.testzip() is None
+        first = archive.infolist()[0]
         assert first.filename == "mimetype"
         assert first.compress_type == zipfile.ZIP_STORED
-        assert z.read("mimetype") == b"application/epub+zip"
-        assert "img/Big Photo.JPG" in z.namelist()  # same names, so references keep working
+        assert archive.read("mimetype") == b"application/epub+zip"
+        assert "img/Big Photo.JPG" in archive.namelist()
 
 
 def test_images_are_never_enlarged(client, tmp_path):
     small = make_image(tmp_path, "small.jpg", "300x300", ["-quality", "100"])
     epub = make_epub(tmp_path / "small.epub", [("small.jpg", small)])
-    r = post(client, epub.read_bytes(), "small.epub", min_kb="1")
-    if r.status_code == 200:
-        out = zipfile.ZipFile(io.BytesIO(r.data)).read("small.jpg")
-        dims = subprocess.run([IM, "jpg:-", "-format", "%wx%h", "info:"], input=out,
-                              capture_output=True).stdout.decode()
-        assert dims == "300x300"
+    response = post(client, epub.read_bytes(), "small.epub", min_kb="1")
+    if response.status_code == 200:
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            output_image = archive.read("small.jpg")
+        dimensions = subprocess.run(
+            [IM, "jpg:-", "-format", "%wx%h", "info:"],
+            input=output_image,
+            capture_output=True,
+            check=True,
+        ).stdout.decode()
+        assert dimensions == "300x300"
     else:
-        assert r.status_code == 422
+        assert response.status_code == 422
 
 
-def test_rejects_non_epub_extension(client):
-    r = post(client, b"hello", "notes.txt")
-    assert r.status_code == 400
+def test_rejects_non_epub_or_pdf_extension(client):
+    response = post(client, b"hello", "notes.txt")
+    assert response.status_code == 400
 
 
-def test_rejects_non_zip_content(client):
-    r = post(client, b"this is not a zip", "fake.epub")
-    assert r.status_code == 422
+def test_rejects_non_zip_epub_content(client):
+    response = post(client, b"this is not a zip", "fake.epub")
+    assert response.status_code == 422
 
 
 def test_no_gain_is_reported_not_crashed(client, tmp_path):
     epub = make_epub(tmp_path / "text-only.epub")
-    r = post(client, epub.read_bytes(), "text-only.epub")
-    assert r.status_code == 422
-    assert "Geen winst" in r.get_json()["error"]
+    response = post(client, epub.read_bytes(), "text-only.epub")
+    assert response.status_code == 422
+    assert "No size reduction" in response.get_json()["error"]
 
 
 def test_weird_parameters_are_clamped(client, big_epub):
-    r = post(client, big_epub.read_bytes(), width="999999999", quality="abc")
-    assert r.status_code == 200
+    response = post(
+        client,
+        big_epub.read_bytes(),
+        width="999999999",
+        quality="abc",
+    )
+    assert response.status_code == 200
 
 
 def test_basic_auth(client):
-    webapp.AUTH_USER, webapp.AUTH_PASS = "me", "secret"
+    app.AUTH_USER, app.AUTH_PASS = "me", "secret"
     try:
         assert client.get("/").status_code == 401
         assert client.get("/healthz").status_code == 200
@@ -135,13 +151,16 @@ def test_basic_auth(client):
         assert client.get("/", headers=good).status_code == 200
         assert client.get("/", headers=bad).status_code == 401
     finally:
-        webapp.AUTH_USER = webapp.AUTH_PASS = ""
+        app.AUTH_USER = app.AUTH_PASS = ""
 
 
 def test_cli_dry_run_does_not_write_anything(tmp_path, big_epub):
-    before = sorted(p.name for p in tmp_path.iterdir())
-    out = subprocess.run(["bash", str(ROOT / "epub-shrink.sh"), "-n", str(big_epub)],
-                         capture_output=True, text=True)
-    assert out.returncode == 0
-    assert "afbeelding" in out.stdout
-    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    before = sorted(path.name for path in tmp_path.iterdir())
+    result = subprocess.run(
+        ["bash", str(ROOT / "epub-shrink.sh"), "-n", str(big_epub)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "afbeelding" in result.stdout
+    assert sorted(path.name for path in tmp_path.iterdir()) == before
