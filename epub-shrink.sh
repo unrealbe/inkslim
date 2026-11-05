@@ -131,7 +131,7 @@ problem=0   # exit code of the last problem, see the header
 
 # Remove the current temporary folder on any exit, including errors and Ctrl+C.
 work=""
-# shellcheck disable=SC2329  # invoked indirectly through the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # cleanup is invoked indirectly through the EXIT trap below
 cleanup() {
     if [[ -n "$work" ]]; then
         rm -rf "$work"
