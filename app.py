@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import subprocess
+import stat
 import tempfile
 import time
 import zipfile
@@ -30,6 +31,8 @@ rl_config.useA85 = 0
 
 app = Flask(__name__)
 MAX_MB = int(os.environ.get("MAX_UPLOAD_MB", "500"))
+MAX_EXTRACTED_MB = int(os.environ.get("MAX_EXTRACTED_MB", "1000"))
+MAX_PDF_PAGES = int(os.environ.get("MAX_PDF_PAGES", "5000"))
 TIMEOUT = int(os.environ.get("SHRINK_TIMEOUT", "840"))
 SCRIPT = os.environ.get(
     "SHRINK_SCRIPT", str(Path(__file__).with_name("epub-shrink.sh"))
@@ -40,6 +43,25 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
 app.logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+
+@app.after_request
+def add_security_headers(response: Response) -> Response:
+    """Add essential security headers to all responses."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    )
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "frame-ancestors 'none'"
+    )
+    return response
 
 
 @app.before_request
@@ -84,6 +106,63 @@ def safe_stem(filename):
     stem = Path(os.path.basename(filename or "book")).stem
     stem = re.sub(r"[\x00-\x1f\\/:*?\"<>|]", "_", stem).strip(" .") or "book"
     return stem[:150]
+
+
+def validate_epub_safety(source: Path) -> tuple[bool, str]:
+    """Reject EPUB archives with unsafe paths or excessive extraction requirements."""
+    max_extracted_bytes = MAX_EXTRACTED_MB * 1024 * 1024
+
+    try:
+        with zipfile.ZipFile(source) as archive:
+            entries = archive.infolist()
+            if len(entries) > 10000:
+                return False, "EPUB contains too many files (possible ZIP bomb)."
+
+            total_uncompressed = 0
+            has_mimetype = False
+            for info in entries:
+                name = info.filename
+                parts = name.split("/")
+                if (
+                    not name
+                    or chr(92) in name
+                    or name.startswith("/")
+                    or any(part == ".." for part in parts)
+                    or (len(name) >= 2 and name[1] == ":")
+                    or chr(0) in name
+                ):
+                    return False, "EPUB contains invalid paths."
+
+                if stat.S_ISLNK(info.external_attr >> 16):
+                    return False, "EPUB contains symlinks."
+                if info.flag_bits & 0x1:
+                    return False, "EPUB contains encrypted files."
+                if info.file_size < 0:
+                    return False, "EPUB contains invalid file metadata."
+
+                total_uncompressed += info.file_size
+                if total_uncompressed > max_extracted_bytes:
+                    return (
+                        False,
+                        f"EPUB uncompressed size exceeds {MAX_EXTRACTED_MB} MB limit.",
+                    )
+                if name == "mimetype":
+                    has_mimetype = True
+
+            if not has_mimetype:
+                return False, "EPUB is missing its mimetype file."
+            try:
+                if archive.read("mimetype") != b"application/epub+zip":
+                    return False, "EPUB has an invalid mimetype file."
+            except (zipfile.BadZipFile, RuntimeError, ValueError, OSError):
+                return False, "EPUB is corrupted or has invalid structure."
+
+            return True, ""
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return False, "Invalid EPUB file."
+    except Exception:
+        app.logger.exception("Unexpected error while validating EPUB archive")
+        return False, "Invalid EPUB file."
 
 
 def inspect_pdf(path):
@@ -375,6 +454,10 @@ def shrink():
         )
 
         if extension == ".epub":
+            is_safe, error_msg = validate_epub_safety(source)
+            if not is_safe:
+                return jsonify(error=error_msg), 422
+
             if not zipfile.is_zipfile(source):
                 return jsonify(error="This does not appear to be a valid EPUB."), 422
 
@@ -421,6 +504,10 @@ def shrink():
         else:
             try:
                 page_count, metadata = inspect_pdf(source)
+                if page_count > MAX_PDF_PAGES:
+                    return jsonify(
+                        error=f"PDF exceeds maximum page limit of {MAX_PDF_PAGES}."
+                    ), 422
             except ValueError as exc:
                 return jsonify(error=str(exc)), 422
 
