@@ -29,7 +29,7 @@ Then open <http://localhost:8125> (or `http://DOCKER-HOST-IP:8125`).
 Or run the prebuilt multi-arch image (amd64 and arm64):
 
 ```bash
-docker run -d --name inkslim -p 8080:8080 --restart unless-stopped \
+docker run -d --name inkslim -p 8125:8080 --restart unless-stopped \
   ghcr.io/unrealbe/inkslim:latest
 ```
 
