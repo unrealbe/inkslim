@@ -8,5 +8,6 @@ services:
       - "8125:8080"
     environment:
       - MAX_UPLOAD_MB=500
+      - SHRINK_TIMEOUT=840
       - LOG_LEVEL=INFO
     command: gunicorn --bind 0.0.0.0:8080 --workers 2 --threads 4 --timeout 300 app:app
