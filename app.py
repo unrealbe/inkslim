@@ -400,13 +400,17 @@ def shrink():
 
             output = output_dir / "book-small.epub"
             if not output.is_file():
-                if "Geen winst" in result.stdout:
+                # epub-shrink.sh reports problems through its exit code (see the script header),
+                # so the text it prints can be translated or reworded without breaking this check.
+                if result.returncode == 2:
                     return jsonify(
                         error="No size reduction was possible with these settings."
                     ), 422
-                if "geen geldige epub" in result.stderr.lower() or "MISLUKT" in result.stderr:
+                if result.returncode == 3:
                     return jsonify(error="This does not appear to be a valid EPUB."), 422
-                app.logger.error("epub-shrink failed: %s", result.stderr[-1000:])
+                app.logger.error(
+                    "epub-shrink failed (exit %s): %s", result.returncode, result.stderr[-1000:]
+                )
                 return jsonify(error="EPUB processing failed."), 500
 
             mime_type = "application/epub+zip"
@@ -431,7 +435,8 @@ def shrink():
                 validate_processed_pdf(output, page_count)
             except Exception as exc:
                 app.logger.exception("PDF processing failed: mode=%s", pdf_mode)
-                message = str(exc) or "PDF processing failed."
+                # Only our own, user-safe messages are shown; anything else stays in the log.
+                message = str(exc) if isinstance(exc, RuntimeError) else "PDF processing failed."
                 return jsonify(error=message), 500
 
             mime_type = "application/pdf"
@@ -480,7 +485,7 @@ INDEX_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2f6f5e">
-<title>Inkslim - EPUB & PDF optimizer</title>
+<title>Inkslim - EPUB &amp; PDF optimizer</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/static/inkslim-favicon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/inkslim-icon-192.png">
 <link rel="apple-touch-icon" href="/static/inkslim-icon-192.png">

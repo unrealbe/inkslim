@@ -129,6 +129,16 @@ total_out=0
 saved_any=0
 problem=0   # exit code of the last problem, see the header
 
+# Remove the current temporary folder on any exit, including errors and Ctrl+C.
+work=""
+# shellcheck disable=SC2329  # invoked indirectly through the EXIT trap below
+cleanup() {
+    if [[ -n "$work" ]]; then
+        rm -rf "$work"
+    fi
+}
+trap cleanup EXIT
+
 for input in "$@"; do
     if [[ ! -f "$input" ]]; then
         echo "Skipped (not found): $input" >&2
@@ -150,15 +160,12 @@ for input in "$@"; do
     fi
 
     work="$(mktemp -d)"
-    cleanup() { rm -rf "$work"; }
-    trap cleanup EXIT
 
     echo "== $name"
     if ! unzip -q "$src" -d "$work" 2>/dev/null || [[ ! -f "$work/mimetype" ]]; then
         echo "   Not a valid EPUB. Skipped." >&2
         problem=3
         rm -rf "$work"
-        trap - EXIT
         continue
     fi
 
@@ -176,7 +183,6 @@ for input in "$@"; do
     if [[ $DRY -eq 1 ]]; then
         echo "   ${count} image(s) larger than ${MIN_KB} kB found"
         rm -rf "$work"
-        trap - EXIT
         continue
     fi
 
@@ -193,7 +199,6 @@ for input in "$@"; do
         problem=4
         rm -f "$tmp_out"
         rm -rf "$work"
-        trap - EXIT
         continue
     fi
 
@@ -214,7 +219,6 @@ for input in "$@"; do
     fi
 
     rm -rf "$work"
-    trap - EXIT
 done
 
 if (( total_in > 0 )); then

@@ -1,13 +1,16 @@
-
 services:
   inkslim:
     image: ghcr.io/unrealbe/inkslim:latest
     container_name: inkslim
     restart: unless-stopped
     ports:
-      - "8125:8080"
+      - "8125:8080"          # host:container, change the left side if 8125 is taken
     environment:
       - MAX_UPLOAD_MB=500
       - SHRINK_TIMEOUT=840
       - LOG_LEVEL=INFO
-    command: gunicorn --bind 0.0.0.0:8080 --workers 2 --threads 4 --timeout 300 app:app
+      # Uncomment both to require a login:
+      # - BASIC_AUTH_USER=me
+      # - BASIC_AUTH_PASS=choose-a-strong-password
+    # No "command:" override on purpose: the image already starts Gunicorn with
+    # 2 workers x 2 threads and a 900 s timeout, which is what large PDFs need.
