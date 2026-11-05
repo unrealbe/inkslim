@@ -11,6 +11,11 @@ from typing import Any
 CHECKPOINT_SCHEMA_VERSION = 1
 
 
+class UnsupportedCheckpointVersionError(ValueError):
+    """Raised when a checkpoint was written by an incompatible future schema."""
+
+
+
 class TextSource(StrEnum):
     NATIVE = "native"
     TESSERACT = "tesseract"
@@ -195,9 +200,20 @@ class PageResult:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> PageResult:
-        version = value.get("schema_version", CHECKPOINT_SCHEMA_VERSION)
-        if version != CHECKPOINT_SCHEMA_VERSION:
-            raise ValueError(f"Unsupported PageResult schema version: {version}")
+        version = value.get("schema_version", 0)
+        if type(version) is not int:
+            raise UnsupportedCheckpointVersionError("Invalid PageResult schema version")
+        if version == 0:
+            # Version 0 was the initial unversioned checkpoint shape. Its fields match
+            # version 1; the metrics and warnings fields are optional.
+            value = dict(value)
+            value["schema_version"] = CHECKPOINT_SCHEMA_VERSION
+            value.setdefault("metrics", {})
+            value.setdefault("warnings", [])
+        elif version != CHECKPOINT_SCHEMA_VERSION:
+            raise UnsupportedCheckpointVersionError(
+                f"Unsupported PageResult schema version: {version}"
+            )
         return cls(
             page_number=int(value["page_number"]),
             width=float(value["width"]),

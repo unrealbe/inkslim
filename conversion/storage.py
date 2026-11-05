@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -14,7 +15,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
-from .models import ACTIVE_JOB_STATUSES, Job, JobStatus, PageResult
+from .models import (
+    ACTIVE_JOB_STATUSES,
+    Job,
+    JobStatus,
+    PageResult,
+    UnsupportedCheckpointVersionError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class JobNotFoundError(LookupError):
@@ -32,11 +41,14 @@ class JobWorkspace:
         self.root = root
         self.input_dir = root / "input"
         self.pages_dir = root / "pages"
+        self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
-        for directory in (self.input_dir, self.pages_dir, self.rendered_dir, self.output_dir):
+        for directory in (
+            self.input_dir, self.analysis_dir, self.pages_dir, self.rendered_dir, self.output_dir
+        ):
             directory.mkdir(parents=True, exist_ok=True)
 
     @property
@@ -45,6 +57,35 @@ class JobWorkspace:
 
     def write_manifest(self, data: dict[str, Any]) -> None:
         self._atomic_json(self.manifest_path, data)
+
+    def analysis_result_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.analysis_dir / f"{page_number:06d}.json"
+
+    def save_page_analysis(self, analysis: Any) -> Path:
+        self.analysis_dir.mkdir(parents=True, exist_ok=True)
+        path = self.analysis_result_path(analysis.page_number)
+        self._atomic_json(path, analysis.to_dict())
+        return path
+
+    def load_page_analysis(self, page_number: int) -> Any | None:
+        from .pdf.models import PageAnalysis
+
+        return self._load_checkpoint(
+            self.analysis_result_path(page_number),
+            PageAnalysis.from_dict,
+            page_number,
+            "analysis",
+        )
+
+    def first_missing_analysis(self, total_pages: int) -> int:
+        if total_pages < 0:
+            raise ValueError("total_pages cannot be negative")
+        for page_number in range(1, total_pages + 1):
+            if self.load_page_analysis(page_number) is None:
+                return page_number
+        return total_pages + 1
 
     def page_result_path(self, page_number: int) -> Path:
         if page_number < 1:
@@ -58,19 +99,59 @@ class JobWorkspace:
         return path
 
     def load_page_result(self, page_number: int) -> PageResult | None:
-        path = self.page_result_path(page_number)
+        return self._load_checkpoint(
+            self.page_result_path(page_number),
+            PageResult.from_dict,
+            page_number,
+            "page-result",
+        )
+
+    def _load_checkpoint(self, path: Path, loader: Any, page_number: int, kind: str) -> Any | None:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            result = PageResult.from_dict(value)
+            result = loader(value)
             if result.page_number != page_number:
-                return None
+                raise ValueError("Checkpoint page number does not match its filename")
+            if value.get("schema_version", 0) == 0:
+                # Persist the migrated current schema so this checkpoint is not
+                # migrated again on every resume.
+                self._atomic_json(path, result.to_dict())
+                logger.info("Migrated legacy %s checkpoint for page %d", kind, page_number)
             return result
         except FileNotFoundError:
             return None
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            # A missing or malformed checkpoint is treated as unfinished and can be rerun.
+        except UnsupportedCheckpointVersionError as exc:
+            self._quarantine_checkpoint(path, page_number, kind, "unknown-version", exc)
             return None
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
+            self._quarantine_checkpoint(path, page_number, kind, "corrupt", exc)
+            return None
+
+    def _quarantine_checkpoint(
+        self, path: Path, page_number: int, kind: str, reason: str, error: Exception
+    ) -> None:
+        if not path.exists():
+            return
+        quarantine_dir = path.parent / "quarantine"
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        target = quarantine_dir / (
+            f"{path.stem}.{reason}.{timestamp}.{uuid.uuid4().hex[:8]}{path.suffix}"
+        )
+        try:
+            os.replace(path, target)
+            logger.warning(
+                "Ignoring %s checkpoint for page %d (%s); moved to quarantine: %s",
+                kind,
+                page_number,
+                error,
+                target.name,
+            )
+        except OSError:
+            logger.exception(
+                "Could not quarantine %s checkpoint for page %d", kind, page_number
+            )
 
     def first_missing_page(self, total_pages: int) -> int:
         if total_pages < 0:

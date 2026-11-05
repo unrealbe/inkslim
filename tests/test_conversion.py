@@ -17,6 +17,15 @@ from conversion.models import (
 )
 from conversion.storage import JobNotFoundError, JobStore
 from conversion.worker import ConversionWorker, JobExecutionResult
+from conversion.pdf.analyzer import PdfAnalysisError, analyze_pdf
+from conversion.pdf.models import PageAnalysis, PageDecision
+from conversion.pdf.quality import assess_native_text
+from conversion.pdf.renderer import (
+    PDFRenderLimits,
+    RenderPlanError,
+    build_render_plan,
+    render_pdf_page,
+)
 
 
 def make_page(page_number: int, text: str = "Sample OCR text") -> PageResult:
@@ -100,6 +109,7 @@ def test_create_job_persists_input_and_workspace_layout(store, tmp_path):
     assert workspace.pages_dir.is_dir()
     assert workspace.rendered_dir.is_dir()
     assert workspace.output_dir.is_dir()
+    assert workspace.analysis_dir.is_dir()
     manifest = json.loads(workspace.manifest_path.read_text(encoding="utf-8"))
     assert manifest["id"] == job.id
     assert manifest["language"] == "nld+eng"
@@ -257,6 +267,10 @@ def test_config_defaults_and_single_worker_guard(monkeypatch, tmp_path):
     assert config.jobs_dir == tmp_path / "jobs"
     assert config.max_ocr_pages == 0
     assert config.ocr_timeout_page == 120
+    assert config.pdf_render_dpi == 300
+    assert config.min_render_dpi == 120
+    assert config.max_render_pixels == 50_000_000
+    assert config.max_render_dimension == 12_000
 
     monkeypatch.setenv("OCR_WORKERS", "2")
     with pytest.raises(ValueError, match="must remain 1"):
@@ -277,3 +291,307 @@ def test_completion_honours_cancellation_requested_at_the_same_time(store, tmp_p
 
     assert completed is False
     assert store.get_job(job.id).status is JobStatus.CANCELLED
+
+
+# ============================================================================
+# Checkpoint compatibility and PDF page analysis
+# ============================================================================
+
+
+def make_image_pdf(path: Path, pages: list[str]) -> Path:
+    """Create a small PDF fixture; page kinds are text, image, mixed, blank, number."""
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    image_path = path.with_suffix(".png")
+    image = Image.new("RGB", (500, 700), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((35, 35), "A scanned page with readable printed words.", fill="black")
+    image.save(image_path)
+
+    pdf_canvas = canvas.Canvas(str(path), pagesize=letter)
+    for kind in pages:
+        if kind == "text":
+            pdf_canvas.drawString(
+                72, 720,
+                "A sufficiently long native text paragraph that should be kept without OCR.",
+            )
+        elif kind == "image":
+            pdf_canvas.drawImage(str(image_path), 72, 250, width=400, height=500)
+        elif kind == "mixed":
+            pdf_canvas.drawImage(str(image_path), 72, 250, width=400, height=500)
+            # Simulate an invisible/embedded OCR text layer over a scan.
+            pdf_canvas.drawString(
+                72, 720,
+                "A sufficiently long native OCR layer with meaningful words and spacing.",
+            )
+        elif kind == "number":
+            pdf_canvas.drawString(300, 30, "127")
+        elif kind != "blank":
+            raise ValueError(f"Unknown fixture page kind: {kind}")
+        pdf_canvas.showPage()
+    pdf_canvas.save()
+    image_path.unlink(missing_ok=True)
+    return path
+
+
+def test_legacy_page_result_checkpoint_is_migrated_and_saved(store, tmp_path):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    legacy = make_page(1).to_dict()
+    legacy.pop("schema_version")
+    legacy.pop("metrics")
+    legacy.pop("warnings")
+    path = workspace.page_result_path(1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    restored = workspace.load_page_result(1)
+
+    assert restored is not None
+    migrated = json.loads(path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == 1
+    assert "metrics" in migrated and "warnings" in migrated
+
+
+def test_unknown_checkpoint_version_is_quarantined_and_reprocessed(store, tmp_path, caplog):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    value = make_page(1).to_dict()
+    value["schema_version"] = 999
+    path = workspace.page_result_path(1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    assert workspace.load_page_result(1) is None
+    assert workspace.first_missing_page(1) == 1
+    quarantined = list((workspace.pages_dir / "quarantine").glob("*.unknown-version.*.json"))
+    assert len(quarantined) == 1
+    assert "quarantined" in caplog.text.lower()
+
+
+def test_corrupt_checkpoint_is_quarantined(store, tmp_path, caplog):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    path = workspace.page_result_path(4)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ this is not valid JSON", encoding="utf-8")
+
+    assert workspace.load_page_result(4) is None
+    quarantined = list((workspace.pages_dir / "quarantine").glob("*.corrupt.*.json"))
+    assert len(quarantined) == 1
+    assert "corrupt" in caplog.text.lower()
+
+
+def test_valid_checkpoint_is_loaded_and_not_marked_for_reprocessing(store, tmp_path):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    workspace.save_page_result(make_page(1))
+    workspace.save_page_result(make_page(3))
+
+    assert workspace.load_page_result(1) == make_page(1)
+    assert workspace.first_missing_page(3) == 2
+    assert workspace.completed_page_count(3) == 2
+
+
+def test_page_analysis_checkpoint_round_trip_and_resume(store, tmp_path):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    analysis = PageAnalysis(
+        page_number=1,
+        width=612,
+        height=792,
+        character_count=1800,
+        word_count=320,
+        image_count=0,
+        has_native_text=True,
+        native_text_quality=0.91,
+        decision=PageDecision.USE_NATIVE,
+        meaningful_character_ratio=0.96,
+        control_character_ratio=0.0,
+        replacement_character_ratio=0.0,
+        single_character_word_ratio=0.03,
+        geometry_usable_ratio=0.99,
+    )
+
+    workspace.save_page_analysis(analysis)
+
+    assert workspace.load_page_analysis(1) == analysis
+    assert workspace.first_missing_analysis(3) == 2
+
+
+def test_pdf_analyzer_classifies_pages_individually(tmp_path):
+    pdf_path = make_image_pdf(
+        tmp_path / "mixed.pdf",
+        ["text", "image", "mixed", "blank", "number"],
+    )
+
+    pages = analyze_pdf(pdf_path)
+
+    assert len(pages) == 5
+    assert pages[0].decision is PageDecision.USE_NATIVE
+    assert pages[0].native_text_quality is not None
+    assert pages[0].native_text_quality > 0.7
+    assert pages[0].image_count == 0
+
+    assert pages[1].decision is PageDecision.OCR_REQUIRED
+    assert pages[1].image_count == 1
+    assert pages[1].render_dpi == 300
+    assert pages[1].render_width_px > 0
+
+    # The embedded OCR layer is reused when its text and geometry are plausible.
+    assert pages[2].decision is PageDecision.USE_NATIVE
+    assert pages[2].image_count == 1
+
+    assert pages[3].decision is PageDecision.EMPTY
+    # A footer-only page number does not trigger OCR.
+    assert pages[4].decision is PageDecision.EMPTY
+
+
+def test_native_text_quality_flags_suspicious_ocr_layer():
+    clean = assess_native_text(
+        "The quick brown fox jumps over the lazy dog. This is normal book text.",
+        image_count=0,
+        geometry_usable_ratio=0.98,
+    )
+    assert clean.decision is PageDecision.USE_NATIVE
+
+    corrupted = assess_native_text(
+        ("A\ufffd\x01" * 30) + " short words",
+        image_count=1,
+        geometry_usable_ratio=0.95,
+    )
+    assert corrupted.decision is PageDecision.OCR_REQUIRED
+    assert "HIGH_REPLACEMENT_CHARACTER_RATIO" in corrupted.warnings
+    assert "HIGH_CONTROL_CHARACTER_RATIO" in corrupted.warnings
+
+
+def test_short_or_geometrically_unusable_text_requires_ocr_or_is_empty():
+    page_number = assess_native_text(
+        "127", image_count=0, geometry_usable_ratio=1.0
+    )
+    assert page_number.decision is PageDecision.EMPTY
+
+    text_over_scan = assess_native_text(
+        "127", image_count=1, geometry_usable_ratio=1.0
+    )
+    assert text_over_scan.decision is PageDecision.OCR_REQUIRED
+
+    bad_geometry = assess_native_text(
+        "This is a sufficiently long text layer, but its glyph positions are implausible.",
+        image_count=0,
+        geometry_usable_ratio=0.1,
+    )
+    assert bad_geometry.decision is PageDecision.OCR_REQUIRED
+    assert "POOR_TEXT_GEOMETRY" in bad_geometry.warnings
+
+
+def test_render_plan_reduces_dpi_to_respect_limits():
+    plan = build_render_plan(
+        4000,
+        4000,
+        limits=PDFRenderLimits(
+            dpi=300,
+            minimum_dpi=120,
+            max_pixels=50_000_000,
+            max_dimension=12_000,
+        ),
+    )
+
+    assert plan.actual_dpi < 300
+    assert plan.actual_dpi >= 120
+    assert plan.width_px * plan.height_px <= 50_000_000
+    assert max(plan.width_px, plan.height_px) <= 12_000
+    assert plan.warnings
+
+
+def test_render_plan_rejects_pages_that_exceed_limits_at_minimum_dpi():
+    with pytest.raises(RenderPlanError):
+        build_render_plan(
+            50_000,
+            50_000,
+            limits=PDFRenderLimits(
+                dpi=300,
+                minimum_dpi=120,
+                max_pixels=50_000_000,
+                max_dimension=12_000,
+            ),
+        )
+
+
+def test_analyzer_marks_page_that_cannot_be_rendered_safely(tmp_path):
+    from PIL import Image
+    from reportlab.pdfgen import canvas
+
+    image_path = tmp_path / "pixel.png"
+    Image.new("RGB", (10, 10), "white").save(image_path)
+    pdf_path = tmp_path / "oversized-page.pdf"
+    pdf_canvas = canvas.Canvas(str(pdf_path), pagesize=(50_000, 50_000))
+    pdf_canvas.drawImage(str(image_path), 0, 0, width=50_000, height=50_000)
+    pdf_canvas.showPage()
+    pdf_canvas.save()
+
+    pages = analyze_pdf(
+        pdf_path,
+        render_limits=PDFRenderLimits(
+            dpi=300,
+            minimum_dpi=120,
+            max_pixels=50_000_000,
+            max_dimension=12_000,
+        ),
+    )
+
+    assert pages[0].decision is PageDecision.OCR_REQUIRED
+    assert pages[0].render_dpi is None
+    assert "RENDER_LIMIT_EXCEEDED" in pages[0].warnings
+
+
+def test_renderer_writes_a_bounded_page_image(tmp_path):
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    import pypdfium2 as pdfium
+
+    pdf_path = tmp_path / "render.pdf"
+    pdf_canvas = canvas.Canvas(str(pdf_path), pagesize=letter)
+    pdf_canvas.drawString(72, 720, "A page to render.")
+    pdf_canvas.showPage()
+    pdf_canvas.save()
+
+    destination = tmp_path / "rendered" / "000001.png"
+    limits = PDFRenderLimits(dpi=150, minimum_dpi=120)
+    with pdfium.PdfDocument(str(pdf_path)) as document:
+        page = document[0]
+        try:
+            plan = render_pdf_page(page, destination, limits=limits)
+        finally:
+            page.close()
+
+    assert destination.is_file()
+    assert plan.actual_dpi == 150
+    with Image.open(destination) as rendered:
+        width, height = rendered.size
+    assert width <= limits.max_dimension
+    assert height <= limits.max_dimension
+    assert width * height <= limits.max_pixels
+
+
+def test_analyzer_reports_password_protected_and_corrupt_pdfs(tmp_path):
+    from reportlab.pdfgen import canvas
+
+    encrypted_path = tmp_path / "encrypted.pdf"
+    encrypted = canvas.Canvas(str(encrypted_path), encrypt="test-password")
+    encrypted.drawString(72, 720, "Password protected book text")
+    encrypted.showPage()
+    encrypted.save()
+
+    with pytest.raises(PdfAnalysisError) as encrypted_error:
+        analyze_pdf(encrypted_path)
+    assert encrypted_error.value.code == "PASSWORD_PROTECTED"
+
+    corrupt_path = tmp_path / "corrupt.pdf"
+    corrupt_path.write_bytes(b"This is not a PDF file")
+    with pytest.raises(PdfAnalysisError) as corrupt_error:
+        analyze_pdf(corrupt_path)
+    assert corrupt_error.value.code == "INVALID_PDF"

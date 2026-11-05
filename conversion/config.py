@@ -15,6 +15,10 @@ class ConversionConfig:
     ocr_timeout_page: int = 120
     job_retention_hours: int = 24
     queue_poll_seconds: float = 2.0
+    pdf_render_dpi: int = 300
+    min_render_dpi: int = 120
+    max_render_pixels: int = 50_000_000
+    max_render_dimension: int = 12_000
 
     @property
     def database_path(self) -> Path:
@@ -33,9 +37,15 @@ class ConversionConfig:
             ocr_timeout_page=_read_int("OCR_TIMEOUT_PAGE", 120, minimum=1),
             job_retention_hours=_read_int("JOB_RETENTION_HOURS", 24, minimum=1),
             queue_poll_seconds=_read_float("QUEUE_POLL_SECONDS", 2.0, minimum=0.1),
+            pdf_render_dpi=_read_int("PDF_RENDER_DPI", 300, minimum=72),
+            min_render_dpi=_read_int("MIN_RENDER_DPI", 120, minimum=72),
+            max_render_pixels=_read_int("MAX_RENDER_PIXELS", 50_000_000, minimum=1),
+            max_render_dimension=_read_int("MAX_RENDER_DIMENSION", 12_000, minimum=1),
         )
         if config.ocr_workers != 1:
             raise ValueError("OCR_WORKERS must remain 1 in conversion V1")
+        if config.min_render_dpi > config.pdf_render_dpi:
+            raise ValueError("MIN_RENDER_DPI cannot exceed PDF_RENDER_DPI")
         return config
 
 
