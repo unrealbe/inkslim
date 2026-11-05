@@ -28,8 +28,14 @@ def analyze_pdf(
     source: Path,
     *,
     render_limits: PDFRenderLimits | None = None,
+    workspace=None,
 ) -> list[PageAnalysis]:
-    """Analyze every PDF page independently; never infer a document-wide route."""
+    """Analyze every page independently and optionally checkpoint each result.
+
+    When a JobWorkspace is supplied, valid per-page analysis checkpoints are reused
+    and newly analyzed pages are saved immediately. A restart therefore resumes at
+    the first page without a valid checkpoint.
+    """
     source = Path(source)
     if not source.is_file():
         raise PdfAnalysisError("INPUT_NOT_FOUND", "The uploaded PDF could not be found")
@@ -45,6 +51,11 @@ def analyze_pdf(
 
             for page_index in range(total_pages):
                 page_number = page_index + 1
+                if workspace is not None:
+                    cached = workspace.load_page_analysis(page_number)
+                    if cached is not None:
+                        results.append(cached)
+                        continue
                 page = document[page_index]
                 try:
                     width, height = page.get_size()
@@ -106,8 +117,7 @@ def analyze_pdf(
                                 exc,
                             )
 
-                    results.append(
-                        PageAnalysis(
+                    analysis = PageAnalysis(
                             page_number=page_number,
                             width=width,
                             height=height,
@@ -128,7 +138,9 @@ def analyze_pdf(
                             render_height_px=render_height_px,
                             warnings=warnings,
                         )
-                    )
+                    if workspace is not None:
+                        workspace.save_page_analysis(analysis)
+                    results.append(analysis)
                 except PdfAnalysisError:
                     raise
                 except Exception as exc:

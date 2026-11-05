@@ -595,3 +595,53 @@ def test_analyzer_reports_password_protected_and_corrupt_pdfs(tmp_path):
     with pytest.raises(PdfAnalysisError) as corrupt_error:
         analyze_pdf(corrupt_path)
     assert corrupt_error.value.code == "INVALID_PDF"
+
+
+def test_pdf_analysis_checkpoints_are_saved_and_reused_on_restart(
+    store, tmp_path, monkeypatch
+):
+    from conversion.pdf import analyzer as analyzer_module
+
+    pdf_path = make_image_pdf(tmp_path / "checkpointed.pdf", ["text", "image", "blank"])
+    job = store.create_job(pdf_path, pdf_path.name, language="nld+eng")
+    workspace = store.workspace(job.id)
+
+    first_run = analyze_pdf(Path(job.input_path), workspace=workspace)
+
+    assert len(first_run) == 3
+    assert workspace.first_missing_analysis(3) == 4
+    assert all(workspace.analysis_result_path(page).is_file() for page in range(1, 4))
+
+    def unexpected_reanalysis(_page):
+        raise AssertionError("A valid per-page checkpoint should be reused")
+
+    monkeypatch.setattr(analyzer_module, "extract_native_text", unexpected_reanalysis)
+    resumed = analyze_pdf(Path(job.input_path), workspace=workspace)
+
+    assert resumed == first_run
+
+
+def test_unknown_page_analysis_checkpoint_is_quarantined(store, tmp_path):
+    job = make_job(store, tmp_path)
+    workspace = store.workspace(job.id)
+    analysis = PageAnalysis(
+        page_number=1,
+        width=612,
+        height=792,
+        character_count=100,
+        word_count=20,
+        image_count=0,
+        has_native_text=True,
+        native_text_quality=0.9,
+        decision=PageDecision.USE_NATIVE,
+    )
+    path = workspace.save_page_analysis(analysis)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 500
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert workspace.load_page_analysis(1) is None
+    quarantined = list(
+        (workspace.analysis_dir / "quarantine").glob("*.unknown-version.*.json")
+    )
+    assert len(quarantined) == 1
