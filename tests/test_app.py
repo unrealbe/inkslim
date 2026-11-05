@@ -181,3 +181,155 @@ def test_cli_exit_codes(tmp_path, big_epub):
 
     missing = tmp_path / "missing.epub"
     assert subprocess.run(script + [str(missing)], capture_output=True).returncode == 5  # not found
+
+
+# ============================================================================
+# Security regression tests
+# ============================================================================
+
+@pytest.fixture()
+def client_with_security():
+    """Client with authentication disabled for response-header checks."""
+    app.AUTH_USER = app.AUTH_PASS = ""
+    return app.app.test_client()
+
+
+def test_security_headers_present(client_with_security):
+    response = client_with_security.get("/")
+    assert response.status_code == 200
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert response.headers.get("Permissions-Policy") == (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    )
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+def test_security_headers_on_healthz(client_with_security):
+    response = client_with_security.get("/healthz")
+    assert response.status_code == 200
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def make_zip_with_entries(tmp_path, entries, name="test.epub"):
+    archive_path = tmp_path / name
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as archive:
+        for entry_name, content in entries:
+            archive.writestr(entry_name, content)
+    return archive_path
+
+
+def make_minimal_epub(tmp_path, name="minimal.epub"):
+    return make_zip_with_entries(
+        tmp_path,
+        [
+            ("mimetype", b"application/epub+zip"),
+            ("META-INF/container.xml", b"<container/>"),
+        ],
+        name,
+    )
+
+
+def test_rejects_epub_with_too_many_files(client, tmp_path):
+    entries = [("mimetype", b"application/epub+zip")]
+    entries.extend((f"file_{i}.txt", b"x") for i in range(10000))
+    archive_path = make_zip_with_entries(tmp_path, entries, "many.epub")
+    response = post(client, archive_path.read_bytes(), "many.epub")
+    assert response.status_code == 422
+    assert "too many files" in response.get_json()["error"].lower()
+
+
+@pytest.mark.parametrize("bad_name", ["../evil.txt", "/absolute.txt", r"folder\\evil.txt", "C:/evil.txt"])
+def test_rejects_epub_with_invalid_paths(client, tmp_path, bad_name):
+    archive_path = make_zip_with_entries(
+        tmp_path,
+        [("mimetype", b"application/epub+zip"), (bad_name, b"bad path")],
+    )
+    response = post(client, archive_path.read_bytes(), "invalid.epub")
+    assert response.status_code == 422
+    assert "invalid paths" in response.get_json()["error"].lower()
+
+
+def test_rejects_epub_with_symlink(client, tmp_path):
+    archive_path = tmp_path / "symlink.epub"
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("mimetype", b"application/epub+zip")
+        info = zipfile.ZipInfo("link")
+        info.create_system = 3
+        info.external_attr = (0o120777 << 16)
+        archive.writestr(info, b"target")
+    response = post(client, archive_path.read_bytes(), "symlink.epub")
+    assert response.status_code == 422
+    assert "symlinks" in response.get_json()["error"].lower()
+
+
+def test_rejects_epub_over_uncompressed_size_limit(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "MAX_EXTRACTED_MB", 1)
+    archive_path = make_zip_with_entries(
+        tmp_path,
+        [
+            ("mimetype", b"application/epub+zip"),
+            ("large.bin", b"x" * (2 * 1024 * 1024)),
+        ],
+        "large.epub",
+    )
+    response = post(client, archive_path.read_bytes(), "large.epub")
+    assert response.status_code == 422
+    assert "uncompressed size" in response.get_json()["error"].lower()
+
+
+def test_rejects_epub_with_missing_or_wrong_mimetype(client, tmp_path):
+    missing = make_zip_with_entries(tmp_path, [("chapter.xhtml", b"<html/>")])
+    response = post(client, missing.read_bytes(), "missing.epub")
+    assert response.status_code == 422
+    assert "mimetype" in response.get_json()["error"].lower()
+
+    wrong = make_zip_with_entries(tmp_path, [("mimetype", b"not-an-epub")], "wrong.epub")
+    response = post(client, wrong.read_bytes(), "wrong.epub")
+    assert response.status_code == 422
+    assert "mimetype" in response.get_json()["error"].lower()
+
+
+def test_accepts_valid_epub_with_security_checks(client, big_epub):
+    response = post(client, big_epub.read_bytes(), "valid.epub", gray="1")
+    assert response.status_code == 200
+    assert len(response.data) < len(big_epub.read_bytes())
+
+
+def test_rejects_pdf_over_page_limit(client, tmp_path, monkeypatch):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "many_pages.pdf"
+    pdf_canvas = canvas.Canvas(str(pdf_path), pagesize=letter)
+    for page_number in range(6):
+        pdf_canvas.drawString(100, 700, f"Page {page_number + 1}")
+        pdf_canvas.showPage()
+    pdf_canvas.save()
+
+    monkeypatch.setattr(app, "MAX_PDF_PAGES", 5)
+    response = post(client, pdf_path.read_bytes(), "many_pages.pdf")
+    assert response.status_code == 422
+    assert "maximum page limit of 5" in response.get_json()["error"].lower()
+
+
+def test_pdf_within_page_limit_passes_page_count_validation(client, tmp_path, monkeypatch):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "few_pages.pdf"
+    pdf_canvas = canvas.Canvas(str(pdf_path), pagesize=letter)
+    for page_number in range(3):
+        pdf_canvas.drawString(100, 700, f"Page {page_number + 1}")
+        pdf_canvas.showPage()
+    pdf_canvas.save()
+
+    monkeypatch.setattr(app, "MAX_PDF_PAGES", 5)
+    response = post(client, pdf_path.read_bytes(), "few_pages.pdf")
+    # A text-only PDF may fail because there is no size reduction; it must not
+    # be rejected by the page-count limit.
+    assert response.status_code != 422 or "page limit" not in response.get_json().get("error", "").lower()
