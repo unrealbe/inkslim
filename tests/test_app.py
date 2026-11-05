@@ -162,5 +162,22 @@ def test_cli_dry_run_does_not_write_anything(tmp_path, big_epub):
         text=True,
     )
     assert result.returncode == 0
-    assert "afbeelding" in result.stdout
+    assert "image(s)" in result.stdout
     assert sorted(path.name for path in tmp_path.iterdir()) == before
+
+
+def test_cli_exit_codes(tmp_path, big_epub):
+    """The web app relies on these exit codes, so they are part of the script's contract."""
+    script = ["bash", str(ROOT / "epub-shrink.sh"), "-o", str(tmp_path / "out")]
+
+    assert subprocess.run(script + [str(big_epub)], capture_output=True).returncode == 0
+
+    text_only = make_epub(tmp_path / "text-only.epub")
+    assert subprocess.run(script + [str(text_only)], capture_output=True).returncode == 2  # no gain
+
+    fake = tmp_path / "fake.epub"
+    fake.write_bytes(b"this is not a zip")
+    assert subprocess.run(script + [str(fake)], capture_output=True).returncode == 3  # invalid EPUB
+
+    missing = tmp_path / "missing.epub"
+    assert subprocess.run(script + [str(missing)], capture_output=True).returncode == 5  # not found
