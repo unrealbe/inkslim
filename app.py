@@ -319,6 +319,13 @@ def validate_processed_pdf(path, expected_pages):
         raise RuntimeError("The PDF processor produced an invalid output file.") from exc
 
 
+@app.get("/favicon.ico")
+def favicon():
+    """Serve a dedicated browser favicon at the conventional root URL."""
+    icon_path = Path(__file__).with_name("static") / "inkslim-favicon.png"
+    return send_file(icon_path, mimetype="image/png", max_age=86400)
+
+
 @app.get("/healthz")
 def healthz():
     return "ok"
@@ -474,6 +481,7 @@ INDEX_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2f6f5e">
 <title>Inkslim - EPUB & PDF optimizer</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/inkslim-favicon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/inkslim-icon-192.png">
 <link rel="apple-touch-icon" href="/static/inkslim-icon-192.png">
 <link rel="manifest" href="/static/site.webmanifest">
