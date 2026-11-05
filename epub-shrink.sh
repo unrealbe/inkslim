@@ -131,10 +131,19 @@ problem=0   # exit code of the last problem, see the header
 
 # Remove the current temporary folder on any exit, including errors and Ctrl+C.
 work=""
+tmp_out_dir=""
+tmp_out=""
+
 # shellcheck disable=SC2317,SC2329  # cleanup is invoked indirectly through the EXIT trap below
 cleanup() {
     if [[ -n "$work" ]]; then
-        rm -rf "$work"
+        rm -rf -- "$work" || true
+        work=""
+    fi
+    if [[ -n "$tmp_out_dir" ]]; then
+        rm -rf -- "$tmp_out_dir" || true
+        tmp_out_dir=""
+        tmp_out=""
     fi
 }
 trap cleanup EXIT
@@ -165,7 +174,7 @@ for input in "$@"; do
     if ! unzip -q "$src" -d "$work" 2>/dev/null || [[ ! -f "$work/mimetype" ]]; then
         echo "   Not a valid EPUB. Skipped." >&2
         problem=3
-        rm -rf "$work"
+        cleanup
         continue
     fi
 
@@ -182,12 +191,15 @@ for input in "$@"; do
 
     if [[ $DRY -eq 1 ]]; then
         echo "   ${count} image(s) larger than ${MIN_KB} kB found"
-        rm -rf "$work"
+        cleanup
         continue
     fi
 
     # Repack according to the EPUB rules.
-    tmp_out="$(mktemp -u "${dest}.XXXXXX")"
+    # Create the temporary output directory beside the destination so the final
+    # move stays on the same filesystem.
+    tmp_out_dir="$(mktemp -d "${dest}.tmp.XXXXXX")"
+    tmp_out="${tmp_out_dir}/book-small.epub"
     ( cd "$work" \
         && zip -X0 -q "$tmp_out" mimetype \
         && zip -Xr9D -q "$tmp_out" . -x mimetype )
@@ -197,8 +209,7 @@ for input in "$@"; do
     if ! unzip -tq "$tmp_out" >/dev/null 2>&1 || [[ "$first" != "mimetype" ]]; then
         echo "   FAILED: the new file did not pass verification, nothing saved." >&2
         problem=4
-        rm -f "$tmp_out"
-        rm -rf "$work"
+        cleanup
         continue
     fi
 
@@ -208,7 +219,6 @@ for input in "$@"; do
     if (( size_out >= size_in )); then
         echo "   No gain ($(human "$size_in") -> $(human "$size_out")), nothing saved."
         problem=2
-        rm -f "$tmp_out"
     else
         mv -f "$tmp_out" "$dest"
         pct=$(( 100 - (size_out * 100 / size_in) ))
@@ -218,7 +228,7 @@ for input in "$@"; do
         saved_any=1
     fi
 
-    rm -rf "$work"
+    cleanup
 done
 
 if (( total_in > 0 )); then
