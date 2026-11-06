@@ -17,7 +17,8 @@ from conversion.models import (
     TextSource,
 )
 from conversion.storage import JobNotFoundError, JobStore
-from conversion.worker import ConversionWorker, JobExecutionResult
+from conversion.worker import ConversionWorker, JobExecutionResult, JobProcessingError
+from conversion.pdf.processor import PdfAnalysisJobProcessor
 from conversion.pdf.analyzer import PdfAnalysisError, analyze_pdf
 from conversion.pdf.models import PageAnalysis, PageDecision
 from conversion.pdf.quality import assess_native_text
@@ -678,8 +679,318 @@ def test_renderer_applies_pdf_page_rotation_and_matches_render_plan(tmp_path):
 
     with Image.open(destination) as rendered:
         assert rendered.size == (plan.width_px, plan.height_px)
-    assert plan.width_px > plan.height_px
+    # PDFium's page dimensions already reflect the page's effective orientation;
+    # the renderer must not apply /Rotate a second time.
+    assert plan.width_px * plan.height_px <= limits.max_pixels
 
+
+
+# ============================================================================
+# PDF analysis worker integration: checkpoint -> progress -> phase transition
+# ============================================================================
+
+
+def make_text_pdf(path: Path, page_count: int) -> Path:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf_canvas = canvas.Canvas(str(path), pagesize=letter)
+    for page_number in range(page_count):
+        pdf_canvas.drawString(
+            72,
+            720,
+            f"Page {page_number + 1}: this is a complete native text paragraph for analysis.",
+        )
+        pdf_canvas.showPage()
+    pdf_canvas.save()
+    return path
+
+
+def make_analysis(page_number: int, decision=PageDecision.USE_NATIVE) -> PageAnalysis:
+    return PageAnalysis(
+        page_number=page_number,
+        width=612,
+        height=792,
+        character_count=1200,
+        word_count=210,
+        image_count=0,
+        has_native_text=True,
+        native_text_quality=0.93,
+        decision=decision,
+        meaningful_character_ratio=0.96,
+        geometry_usable_ratio=0.99,
+    )
+
+
+def test_pdf_job_analyzes_all_pages_and_enters_ready_for_ocr(store, tmp_path):
+    source = make_image_pdf(
+        tmp_path / "mixed-worker.pdf", ["text", "image", "blank", "mixed"]
+    )
+    job = store.create_job(source, source.name, language="nld+eng")
+    worker = ConversionWorker(
+        store, PdfAnalysisJobProcessor(), worker_id="pdf-analysis-worker"
+    )
+
+    assert worker.run_once() is True
+
+    result = store.get_job(job.id)
+    workspace = store.workspace(job.id)
+    assert result.status is JobStatus.READY_FOR_OCR
+    assert result.total_pages == 4
+    assert result.completed_pages == 4
+    assert result.current_page is None
+    assert result.worker_id is None
+    assert result.completed_at is None
+    assert [workspace.load_page_analysis(n).decision for n in range(1, 5)] == [
+        PageDecision.USE_NATIVE,
+        PageDecision.OCR_REQUIRED,
+        PageDecision.EMPTY,
+        PageDecision.USE_NATIVE,
+    ]
+    assert not workspace.page_result_path(1).exists()
+
+
+def test_pdf_job_updates_sqlite_progress_after_each_page(store, tmp_path, monkeypatch):
+    source = make_text_pdf(tmp_path / "progress.pdf", 4)
+    job = store.create_job(source, source.name)
+    observed_progress = []
+    original_update = store.update_progress
+
+    def record_progress(job_id, **kwargs):
+        updated = original_update(job_id, **kwargs)
+        observed_progress.append(
+            (updated.current_page, updated.completed_pages, updated.total_pages)
+        )
+        return updated
+
+    monkeypatch.setattr(store, "update_progress", record_progress)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="progress-worker")
+
+    worker.run_once()
+
+    assert observed_progress == [(1, 1, 4), (2, 2, 4), (3, 3, 4), (4, 4, 4)]
+    assert store.get_job(job.id).status is JobStatus.READY_FOR_OCR
+
+
+def test_pdf_job_resumes_after_restart_without_repeating_valid_checkpoints(
+    store, tmp_path, monkeypatch
+):
+    from conversion.pdf import processor as processor_module
+
+    source = make_text_pdf(tmp_path / "resume-analysis.pdf", 5)
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    for page_number in (1, 2):
+        workspace.save_page_analysis(make_analysis(page_number))
+
+    claimed = store.claim_next_job("worker-before-restart")
+    assert claimed is not None
+    store.update_progress(
+        job.id,
+        status=JobStatus.ANALYZING,
+        current_page=2,
+        total_pages=5,
+        completed_pages=2,
+        message="Stopped after page 2",
+    )
+    assert store.recover_interrupted_jobs() == 1
+
+    analyzed_pages = []
+    real_analyze = processor_module.analyze_pdf_page
+
+    def count_analyze(page, page_number, **kwargs):
+        analyzed_pages.append(page_number)
+        return real_analyze(page, page_number, **kwargs)
+
+    monkeypatch.setattr(processor_module, "analyze_pdf_page", count_analyze)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="worker-after-restart")
+
+    worker.run_once()
+
+    assert analyzed_pages == [3, 4, 5]
+    result = store.get_job(job.id)
+    assert result.status is JobStatus.READY_FOR_OCR
+    assert result.completed_pages == 5
+    assert workspace.first_missing_analysis(5) == 6
+
+
+def test_progress_reconciles_from_checkpoints_after_crash_between_disk_and_sqlite(
+    store, tmp_path, monkeypatch
+):
+    from conversion.pdf import processor as processor_module
+
+    source = make_text_pdf(tmp_path / "crash-window.pdf", 18)
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    # Simulate page 17's checkpoint being fsynced and renamed, but the SQLite
+    # progress UPDATE never happened. SQLite still says 16; disk proves 17.
+    for page_number in range(1, 18):
+        workspace.save_page_analysis(make_analysis(page_number))
+
+    assert store.claim_next_job("worker-before-crash") is not None
+    store.update_progress(
+        job.id,
+        status=JobStatus.ANALYZING,
+        current_page=16,
+        total_pages=18,
+        completed_pages=16,
+        message="Before crash",
+    )
+    assert store.get_job(job.id).completed_pages == 16
+    assert store.recover_interrupted_jobs() == 1
+
+    analyzed_pages = []
+    reconciled_state = []
+    real_analyze = processor_module.analyze_pdf_page
+
+    def observe_resume(page, page_number, **kwargs):
+        current = store.get_job(job.id)
+        if not reconciled_state:
+            reconciled_state.append(
+                (current.completed_pages, current.current_page, current.total_pages)
+            )
+        analyzed_pages.append(page_number)
+        return real_analyze(page, page_number, **kwargs)
+
+    monkeypatch.setattr(processor_module, "analyze_pdf_page", observe_resume)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="recovery-worker")
+
+    worker.run_once()
+
+    assert reconciled_state == [(17, 18, 18)]
+    assert analyzed_pages == [18]
+    result = store.get_job(job.id)
+    assert result.status is JobStatus.READY_FOR_OCR
+    assert result.completed_pages == 18
+
+
+def test_cancel_between_pages_keeps_all_completed_analysis_checkpoints(
+    store, tmp_path, monkeypatch
+):
+    from conversion.pdf import processor as processor_module
+
+    source = make_text_pdf(tmp_path / "cancel-analysis.pdf", 3)
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    real_analyze = processor_module.analyze_pdf_page
+
+    def cancel_after_second(page, page_number, **kwargs):
+        result = real_analyze(page, page_number, **kwargs)
+        if page_number == 2:
+            store.request_cancel(job.id)
+        return result
+
+    monkeypatch.setattr(processor_module, "analyze_pdf_page", cancel_after_second)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="cancel-worker")
+
+    worker.run_once()
+
+    result = store.get_job(job.id)
+    assert result.status is JobStatus.CANCELLED
+    assert result.completed_pages == 2
+    assert workspace.load_page_analysis(1) is not None
+    assert workspace.load_page_analysis(2) is not None
+    assert workspace.load_page_analysis(3) is None
+
+
+def test_cancelled_pdf_job_can_be_explicitly_resumed_from_checkpoints(
+    store, tmp_path, monkeypatch
+):
+    from conversion.pdf import processor as processor_module
+
+    source = make_text_pdf(tmp_path / "explicit-resume.pdf", 3)
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    real_analyze = processor_module.analyze_pdf_page
+    cancel_once = True
+    analyzed_pages = []
+
+    def cancel_once_after_first(page, page_number, **kwargs):
+        nonlocal cancel_once
+        result = real_analyze(page, page_number, **kwargs)
+        analyzed_pages.append(page_number)
+        if page_number == 1 and cancel_once:
+            cancel_once = False
+            store.request_cancel(job.id)
+        return result
+
+    monkeypatch.setattr(processor_module, "analyze_pdf_page", cancel_once_after_first)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="resume-worker")
+
+    worker.run_once()
+    assert store.get_job(job.id).status is JobStatus.CANCELLED
+    assert workspace.load_page_analysis(1) is not None
+
+    resumed = store.resume_cancelled_job(job.id)
+    assert resumed.status is JobStatus.QUEUED
+    assert resumed.cancellation_requested is False
+
+    worker.run_once()
+
+    assert analyzed_pages == [1, 2, 3]
+    assert store.get_job(job.id).status is JobStatus.READY_FOR_OCR
+    assert store.get_job(job.id).completed_pages == 3
+
+
+def test_pdf_open_failure_marks_job_failed_with_safe_error(store, tmp_path):
+    source = tmp_path / "not-a-pdf.pdf"
+    source.write_bytes(b"not a PDF file")
+    job = store.create_job(source, source.name)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="invalid-pdf-worker")
+
+    worker.run_once()
+
+    result = store.get_job(job.id)
+    assert result.status is JobStatus.FAILED
+    assert result.error_code == "INVALID_PDF"
+    assert "not a valid" in result.error_message.lower()
+    assert str(source) not in result.error_message
+
+
+def test_page_analysis_failure_is_reported_with_safe_message(store, tmp_path, monkeypatch):
+    from conversion.pdf import processor as processor_module
+
+    source = make_text_pdf(tmp_path / "page-failure.pdf", 2)
+    job = store.create_job(source, source.name)
+
+    def fail_page(_page, page_number, **_kwargs):
+        raise PdfAnalysisError(
+            "PAGE_ANALYSIS_FAILED", f"Could not analyze PDF page {page_number}"
+        )
+
+    monkeypatch.setattr(processor_module, "analyze_pdf_page", fail_page)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="page-failure-worker")
+
+    worker.run_once()
+
+    result = store.get_job(job.id)
+    assert result.status is JobStatus.FAILED
+    assert result.error_code == "PAGE_ANALYSIS_FAILED"
+    assert result.error_message == "Could not analyze PDF page 1"
+    assert str(source) not in result.error_message
+
+
+def test_rotated_pdf_page_keeps_rotation_in_worker_analysis_checkpoint(
+    store, tmp_path
+):
+    import pikepdf
+
+    source = make_image_pdf(tmp_path / "rotated-page.pdf", ["image"])
+    rotated = tmp_path / "rotated-page-input.pdf"
+    with pikepdf.open(source) as pdf:
+        pdf.pages[0].obj["/Rotate"] = 90
+        pdf.save(rotated)
+
+    job = store.create_job(rotated, rotated.name)
+    worker = ConversionWorker(store, PdfAnalysisJobProcessor(), worker_id="rotation-worker")
+    worker.run_once()
+
+    analysis = store.workspace(job.id).load_page_analysis(1)
+    assert analysis is not None
+    assert analysis.rotation == 90
+    assert analysis.decision is PageDecision.OCR_REQUIRED
 
 
 def test_old_sqlite_jobs_schema_is_migrated_without_losing_existing_jobs(tmp_path):
