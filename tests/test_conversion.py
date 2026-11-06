@@ -945,7 +945,7 @@ def test_pdf_open_failure_marks_job_failed_with_safe_error(store, tmp_path):
     result = store.get_job(job.id)
     assert result.status is JobStatus.FAILED
     assert result.error_code == "INVALID_PDF"
-    assert "not a valid" in result.error_message.lower()
+    assert "valid or readable pdf" in result.error_message.lower()
     assert str(source) not in result.error_message
 
 
