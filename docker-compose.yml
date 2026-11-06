@@ -1,5 +1,5 @@
 services:
-  inkslim:
+  web:
     image: ghcr.io/unrealbe/inkslim:latest
     container_name: inkslim
     restart: unless-stopped
@@ -9,8 +9,33 @@ services:
       - MAX_UPLOAD_MB=500
       - SHRINK_TIMEOUT=840
       - LOG_LEVEL=INFO
+      - INKSLIM_DATA_DIR=/data/conversion
       # Uncomment both to require a login:
       # - BASIC_AUTH_USER=me
       # - BASIC_AUTH_PASS=choose-a-strong-password
-    # No "command:" override on purpose: the image already starts Gunicorn with
-    # 2 workers x 2 threads and a 900 s timeout, which is what large PDFs need.
+    volumes:
+      - conversion-data:/data/conversion
+
+  worker:
+    image: ghcr.io/unrealbe/inkslim:latest
+    container_name: inkslim-worker
+    restart: unless-stopped
+    command: ["python", "-m", "conversion"]
+    environment:
+      - LOG_LEVEL=INFO
+      - INKSLIM_DATA_DIR=/data/conversion
+      - QUEUE_POLL_SECONDS=2
+      - PDF_RENDER_DPI=300
+      - MIN_RENDER_DPI=120
+      - MAX_RENDER_PIXELS=50000000
+      - MAX_RENDER_DIMENSION=12000
+      - OCR_WORKERS=1
+    volumes:
+      - conversion-data:/data/conversion
+    # The image healthcheck targets the Flask web endpoint, which is not
+    # running in this service. Docker Compose must not apply that check here.
+    healthcheck:
+      disable: true
+
+volumes:
+  conversion-data:
