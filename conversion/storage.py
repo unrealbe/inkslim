@@ -25,6 +25,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_VERSION = 1
+
 
 class JobNotFoundError(LookupError):
     pass
@@ -221,11 +223,7 @@ class JobStore:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
-            self._create_jobs_table(connection, "jobs")
-            self._migrate_ready_for_ocr_status(connection)
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at)"
-            )
+            self._migrate_schema(connection)
 
     @staticmethod
     def _create_jobs_table(connection: sqlite3.Connection, table_name: str) -> None:
@@ -262,36 +260,56 @@ class JobStore:
             """
         )
 
-    def _migrate_ready_for_ocr_status(self, connection: sqlite3.Connection) -> None:
-        row = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
-        ).fetchone()
-        if row is None:
-            raise RuntimeError("Jobs table was not created")
-        if "ready_for_ocr" in (row["sql"] or ""):
-            return
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        """Apply transactional schema migrations tracked by SQLite user_version.
 
-        # Existing installations created before analysis was integrated have a CHECK
-        # constraint without ready_for_ocr. Rebuild while preserving all queued jobs.
-        columns = (
-            "id, status, input_name, input_path, output_path, report_path, language, "
-            "total_pages, completed_pages, current_page, progress_message, "
-            "cancellation_requested, worker_id, error_code, error_message, created_at, "
-            "updated_at, started_at, completed_at, expires_at"
-        )
+        Version 0 is the unversioned schema shipped by earlier releases. On first
+        startup it is adopted into version 1. Existing jobs tables are rebuilt to
+        guarantee the current CHECK constraint; fresh databases get the current
+        table directly. Later migrations must increment SCHEMA_VERSION.
+        """
         connection.execute("BEGIN IMMEDIATE")
         try:
-            connection.execute("DROP INDEX IF EXISTS idx_jobs_queue")
-            connection.execute("DROP TABLE IF EXISTS jobs_v2")
-            self._create_jobs_table(connection, "jobs_v2")
-            connection.execute(
-                f"INSERT INTO jobs_v2 ({columns}) SELECT {columns} FROM jobs"
-            )
-            connection.execute("DROP TABLE jobs")
-            connection.execute("ALTER TABLE jobs_v2 RENAME TO jobs")
-            connection.execute(
-                "CREATE INDEX idx_jobs_queue ON jobs(status, created_at)"
-            )
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Database schema version {version} is newer than supported "
+                    f"version {SCHEMA_VERSION}"
+                )
+            if version == SCHEMA_VERSION:
+                connection.commit()
+                return
+
+            if version == 0:
+                existing_table = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
+                ).fetchone()
+                if existing_table is None:
+                    self._create_jobs_table(connection, "jobs")
+                else:
+                    # Adopt an unversioned installation. Rebuilding is safe for both
+                    # the older CHECK constraint and databases already on the new
+                    # schema, and preserves every persisted job row.
+                    columns = (
+                        "id, status, input_name, input_path, output_path, report_path, language, "
+                        "total_pages, completed_pages, current_page, progress_message, "
+                        "cancellation_requested, worker_id, error_code, error_message, created_at, "
+                        "updated_at, started_at, completed_at, expires_at"
+                    )
+                    connection.execute("DROP INDEX IF EXISTS idx_jobs_queue")
+                    connection.execute("DROP TABLE IF EXISTS jobs_v1")
+                    self._create_jobs_table(connection, "jobs_v1")
+                    connection.execute(
+                        f"INSERT INTO jobs_v1 ({columns}) SELECT {columns} FROM jobs"
+                    )
+                    connection.execute("DROP TABLE jobs")
+                    connection.execute("ALTER TABLE jobs_v1 RENAME TO jobs")
+
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at)"
+                )
+                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
             connection.commit()
         except Exception:
             connection.rollback()

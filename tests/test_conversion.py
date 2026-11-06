@@ -1053,6 +1053,94 @@ def test_old_sqlite_jobs_schema_is_migrated_without_losing_existing_jobs(tmp_pat
     connection.close()
     assert "ready_for_ocr" in schema
 
+    with sqlite3.connect(database) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+    assert version == 1
+
     assert store.claim_next_job("migration-test-worker") is not None
     assert store.mark_ready_for_ocr(job_id) is True
     assert store.get_job(job_id).status is JobStatus.READY_FOR_OCR
+
+
+def test_fresh_sqlite_database_is_created_at_latest_schema_version(tmp_path):
+    database = tmp_path / "fresh.sqlite3"
+    store = JobStore(database, tmp_path / "jobs")
+
+    with sqlite3.connect(database) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
+        ).fetchone()
+
+    assert version == 1
+    assert table is not None
+    assert store.list_jobs() == []
+
+
+def test_latest_sqlite_schema_startup_is_a_noop(tmp_path, monkeypatch):
+    database = tmp_path / "latest.sqlite3"
+    jobs_dir = tmp_path / "jobs"
+    JobStore(database, jobs_dir)
+
+    def unexpected_migration(*_args, **_kwargs):
+        raise AssertionError("A latest-version database must not run migrations")
+
+    monkeypatch.setattr(JobStore, "_create_jobs_table", staticmethod(unexpected_migration))
+    JobStore(database, jobs_dir)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_future_sqlite_schema_version_fails_safely(tmp_path):
+    database = tmp_path / "future.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version = 99")
+
+    with pytest.raises(RuntimeError, match="newer than supported"):
+        JobStore(database, tmp_path / "jobs")
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 99
+
+
+def test_sqlite_schema_migration_failure_rolls_back_completely(tmp_path, monkeypatch):
+    database = tmp_path / "rollback.sqlite3"
+    jobs_dir = tmp_path / "jobs"
+    JobStore(database, jobs_dir)
+
+    job_id = "12345678-1234-5678-1234-567812345678"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO jobs
+               (id, status, input_name, input_path, language, created_at, updated_at)
+               VALUES (?, 'queued', 'kept.pdf', '/jobs/kept.pdf', 'nld+eng',
+                       '2026-11-01T00:00:00+00:00', '2026-11-01T00:00:00+00:00')""",
+            (job_id,),
+        )
+        connection.execute("PRAGMA user_version = 0")
+
+    create_table = JobStore._create_jobs_table
+
+    def fail_after_create(connection, table_name):
+        create_table(connection, table_name)
+        if table_name == "jobs_v1":
+            raise RuntimeError("simulated migration failure")
+
+    monkeypatch.setattr(JobStore, "_create_jobs_table", staticmethod(fail_after_create))
+
+    with pytest.raises(RuntimeError, match="simulated migration failure"):
+        JobStore(database, jobs_dir)
+
+    with sqlite3.connect(database) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        row = connection.execute(
+            "SELECT id, input_name, status FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        temporary_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs_v1'"
+        ).fetchone()
+
+    assert version == 0
+    assert row == (job_id, "kept.pdf", "queued")
+    assert temporary_table is None
