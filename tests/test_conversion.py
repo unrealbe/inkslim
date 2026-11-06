@@ -1124,7 +1124,7 @@ def test_sqlite_schema_migration_failure_rolls_back_completely(tmp_path, monkeyp
 
     def fail_after_create(connection, table_name):
         create_table(connection, table_name)
-        if table_name == "jobs_v1":
+        if table_name == "jobs_v2":
             raise RuntimeError("simulated migration failure")
 
     monkeypatch.setattr(JobStore, "_create_jobs_table", staticmethod(fail_after_create))
@@ -1138,7 +1138,7 @@ def test_sqlite_schema_migration_failure_rolls_back_completely(tmp_path, monkeyp
             "SELECT id, input_name, status FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
         temporary_table = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs_v1'"
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs_v2'"
         ).fetchone()
 
     assert version == 0

@@ -297,13 +297,13 @@ class JobStore:
                         "updated_at, started_at, completed_at, expires_at"
                     )
                     connection.execute("DROP INDEX IF EXISTS idx_jobs_queue")
-                    connection.execute("DROP TABLE IF EXISTS jobs_v1")
-                    self._create_jobs_table(connection, "jobs_v1")
+                    connection.execute("DROP TABLE IF EXISTS jobs_v2")
+                    self._create_jobs_table(connection, "jobs_v2")
                     connection.execute(
-                        f"INSERT INTO jobs_v1 ({columns}) SELECT {columns} FROM jobs"
+                        f"INSERT INTO jobs_v2 ({columns}) SELECT {columns} FROM jobs"
                     )
                     connection.execute("DROP TABLE jobs")
-                    connection.execute("ALTER TABLE jobs_v1 RENAME TO jobs")
+                    connection.execute("ALTER TABLE jobs_v2 RENAME TO jobs")
 
                 connection.execute(
                     "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at)"
