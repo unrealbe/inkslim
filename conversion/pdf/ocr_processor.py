@@ -113,10 +113,18 @@ class PdfOcrJobProcessor:
 class PdfConversionJobProcessor:
     """Dispatch a claimed job to its current PDF pipeline phase."""
 
-    def __init__(self, render_limits=None, *, engine: OcrEngine | None = None, timeout_seconds: int = 120):
+    def __init__(
+        self, render_limits=None, *, engine: OcrEngine | None = None,
+        timeout_seconds: int = 120, native_text_sample_interval: int = 10,
+    ):
         from .processor import PdfAnalysisJobProcessor
 
-        self.analysis = PdfAnalysisJobProcessor(render_limits=render_limits)
+        self.analysis = PdfAnalysisJobProcessor(
+            render_limits=render_limits,
+            engine=engine,
+            sample_interval=native_text_sample_interval,
+            timeout_seconds=timeout_seconds,
+        )
         self.ocr = PdfOcrJobProcessor(
             render_limits=render_limits, engine=engine, timeout_seconds=timeout_seconds
         )

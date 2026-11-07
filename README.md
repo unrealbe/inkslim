@@ -132,6 +132,7 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | MIN_RENDER_DPI | 120 | Minimum permitted PDF render DPI. |
 | MAX_RENDER_PIXELS | 50000000 | Maximum pixel count for one rendered page. |
 | MAX_RENDER_DIMENSION | 12000 | Maximum width or height, in pixels, for one rendered page. |
+| NATIVE_TEXT_SAMPLE_INTERVAL | 10 | Validate every Nth eligible native-text page against OCR, starting at page 1. |
 | OCR_TIMEOUT_PAGE | 120 | Maximum Tesseract runtime per page, in seconds. |
 | OCR_WORKERS | 1 | Number of OCR workers. V1 intentionally requires exactly one. |
 | MAX_OCR_PAGES | 0 | Maximum OCR page count; 0 means unlimited. |
