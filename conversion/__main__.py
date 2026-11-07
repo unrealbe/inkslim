@@ -29,7 +29,10 @@ def main() -> None:
         max_pixels=config.max_render_pixels,
         max_dimension=config.max_render_dimension,
     )
-    processor = PdfConversionJobProcessor(\n        render_limits=render_limits,\n        timeout_seconds=config.ocr_timeout_page,\n    )
+    processor = PdfConversionJobProcessor(
+        render_limits=render_limits,
+        timeout_seconds=config.ocr_timeout_page,
+    )
     worker = ConversionWorker(
         store,
         processor,
