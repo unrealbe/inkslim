@@ -174,11 +174,11 @@ def test_interrupted_job_resumes_after_last_valid_page(store, tmp_path):
     assert claimed is not None
     store.update_progress(
         job.id,
-        status=JobStatus.OCR,
+        status=JobStatus.ANALYZING,
         current_page=1,
         total_pages=3,
         completed_pages=1,
-        message="OCR page 1",
+        message="Analysis page 1",
     )
     workspace = store.workspace(job.id)
     workspace.save_page_result(make_page(1, "Already checkpointed"))

@@ -70,9 +70,17 @@ def test_ocr_phase_skips_valid_page_result_checkpoint(tmp_path):
     worker.run_once()
 
     workspace = store.workspace(job.id)
+    checkpoint_engine = FakeOcrEngine()
+    checkpoint = checkpoint_engine.recognize(
+        tmp_path / "not-read.png", ["nld"], page_number=1
+    )
+    workspace.save_page_result(checkpoint)
+
+    # Use a fresh engine to verify that the worker does not invoke OCR again.
     engine = FakeOcrEngine()
-    workspace.save_page_result(engine.recognize(tmp_path / "not-read.png", ["nld"], page_number=1))
-    second_worker = ConversionWorker(store, PdfConversionJobProcessor(engine=engine), worker_id="resume")
+    second_worker = ConversionWorker(
+        store, PdfConversionJobProcessor(engine=engine), worker_id="resume"
+    )
     second_worker.run_once()
 
     assert engine.calls == []
