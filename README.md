@@ -262,6 +262,7 @@ The current implementation foundation includes:
 - Tesseract OCR using TSV output, including word positions and confidence values.
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
 - A JSON quality report with per-page decisions, OCR confidence, warnings and aggregate counts; recognized book text is deliberately excluded.
+- OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
 The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: native PDF text extraction and quality validation, text reading-order reconstruction, paragraph and heading detection, header/footer cleanup, dehyphenation, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
@@ -467,6 +468,7 @@ The Docker image uses Python 3.12, installs the system tools required by the EPU
     │   ├── __main__.py         # Worker entry point
     │   ├── storage.py          # SQLite job store and durable checkpoints
     │   ├── quality_report.py   # Per-page and aggregate JSON quality report
+    │   ├── lines.py            # Deterministic OCR line reconstruction
     │   ├── worker.py           # Job claiming, recovery and execution
     │   ├── ocr/                # OCR engine interface and Tesseract TSV backend
     │   ├── pdf/                # PDF analysis, rendering and OCR processing

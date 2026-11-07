@@ -12,6 +12,7 @@ from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
 from ..quality_report import build_quality_report
+from ..lines import reconstruct_lines
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -45,7 +46,13 @@ class PdfOcrJobProcessor:
                         )
                     if analysis.decision is not PageDecision.OCR_REQUIRED:
                         continue
-                    if workspace.load_page_result(page_number) is not None:
+                    existing_result = workspace.load_page_result(page_number)
+                    if existing_result is not None:
+                        if workspace.load_page_lines(page_number) is None:
+                            workspace.save_page_lines(
+                                page_number,
+                                [line.to_dict() for line in reconstruct_lines(existing_result)],
+                            )
                         continue
                     if analysis.render_dpi is None:
                         raise JobProcessingError(
@@ -79,6 +86,10 @@ class PdfOcrJobProcessor:
                         raise JobProcessingError(exc.code, exc.public_message) from exc
 
                     workspace.save_page_result(result)
+                    workspace.save_page_lines(
+                        page_number,
+                        [line.to_dict() for line in reconstruct_lines(result)],
+                    )
                     store.update_progress(
                         job.id,
                         status=JobStatus.OCR,

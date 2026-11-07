@@ -43,13 +43,14 @@ class JobWorkspace:
         self.root = root
         self.input_dir = root / "input"
         self.pages_dir = root / "pages"
+        self.lines_dir = root / "lines"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -107,6 +108,35 @@ class JobWorkspace:
             page_number,
             "page-result",
         )
+
+    def page_lines_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.lines_dir / f"{page_number:06d}.json"
+
+    def save_page_lines(self, page_number: int, lines: list[dict[str, Any]]) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        path = self.page_lines_path(page_number)
+        self._atomic_json(path, {"schema_version": 1, "page_number": page_number, "lines": lines})
+        return path
+
+    def load_page_lines(self, page_number: int) -> list[dict[str, Any]] | None:
+        path = self.page_lines_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+                raise ValueError("Line checkpoint metadata does not match its page")
+            lines = value.get("lines")
+            if not isinstance(lines, list) or any(not isinstance(line, dict) for line in lines):
+                raise ValueError("Line checkpoint has an invalid lines collection")
+            return lines
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "lines", "corrupt", exc)
+            return None
 
     def _load_checkpoint(self, path: Path, loader: Any, page_number: int, kind: str) -> Any | None:
         try:
