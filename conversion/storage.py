@@ -424,24 +424,30 @@ class JobStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT id FROM jobs WHERE status = ? ORDER BY created_at, id LIMIT 1",
-                (JobStatus.QUEUED.value,),
+                """SELECT id, status FROM jobs
+                   WHERE status IN (?, ?) ORDER BY created_at, id LIMIT 1""",
+                (JobStatus.QUEUED.value, JobStatus.READY_FOR_OCR.value),
             ).fetchone()
             if row is None:
                 connection.commit()
                 return None
             now = self._now()
+            claimed_status = (
+                JobStatus.ANALYZING
+                if JobStatus(row["status"]) is JobStatus.QUEUED
+                else JobStatus.OCR
+            )
             connection.execute(
                 """UPDATE jobs SET status = ?, worker_id = ?, started_at = COALESCE(started_at, ?),
                    updated_at = ?, progress_message = ? WHERE id = ? AND status = ?""",
                 (
-                    JobStatus.ANALYZING.value,
+                    claimed_status.value,
                     worker_id,
                     now,
                     now,
                     "Worker claimed job",
                     row["id"],
-                    JobStatus.QUEUED.value,
+                    row["status"],
                 ),
             )
             claimed = connection.execute(
@@ -459,14 +465,17 @@ class JobStore:
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 f"""UPDATE jobs
-                    SET status = CASE WHEN cancellation_requested = 1 THEN ? ELSE ? END,
+                    SET status = CASE
+                            WHEN cancellation_requested = 1 THEN ?
+                            WHEN status = ? THEN ?
+                            ELSE ? END,
                         worker_id = NULL, updated_at = ?,
                         completed_at = CASE WHEN cancellation_requested = 1 THEN ? ELSE completed_at END,
                         progress_message = CASE WHEN cancellation_requested = 1
                             THEN 'Cancelled during worker restart'
                             ELSE 'Resuming after worker restart' END
                     WHERE status IN ({placeholders})""",
-                (JobStatus.CANCELLED.value, JobStatus.QUEUED.value, now, now, *statuses),
+                (JobStatus.CANCELLED.value, JobStatus.OCR.value, JobStatus.READY_FOR_OCR.value, JobStatus.QUEUED.value, now, now, *statuses),
             )
             connection.commit()
         return cursor.rowcount
@@ -540,6 +549,32 @@ class JobStore:
                 """UPDATE jobs SET status = ?, worker_id = NULL, current_page = NULL,
                    completed_at = NULL, progress_message = ?, updated_at = ? WHERE id = ?""",
                 (JobStatus.READY_FOR_OCR.value, "PDF analysis completed", now, job_id),
+            )
+            connection.commit()
+        return True
+
+    def mark_extracting(self, job_id: str) -> bool:
+        """Finish the OCR phase and leave the job ready for text post-processing."""
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._select_job(connection, job_id)
+            if row is None:
+                raise JobNotFoundError(job_id)
+            if JobStatus(row["status"]) is not JobStatus.OCR:
+                raise InvalidJobStateError("Only an OCR job can become extracting")
+            if row["cancellation_requested"]:
+                connection.execute(
+                    """UPDATE jobs SET status = ?, completed_at = ?, updated_at = ?,
+                       worker_id = NULL, progress_message = ? WHERE id = ?""",
+                    (JobStatus.CANCELLED.value, now, now, "Job cancelled", job_id),
+                )
+                connection.commit()
+                return False
+            connection.execute(
+                """UPDATE jobs SET status = ?, worker_id = NULL, current_page = NULL,
+                   completed_at = NULL, progress_message = ?, updated_at = ? WHERE id = ?""",
+                (JobStatus.EXTRACTING.value, "OCR completed; ready for text post-processing", now, job_id),
             )
             connection.commit()
         return True

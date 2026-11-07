@@ -14,8 +14,9 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
             calls["jobs_dir"] = jobs_dir
 
     class FakeProcessor:
-        def __init__(self, render_limits):
+        def __init__(self, render_limits, *, timeout_seconds):
             calls["render_limits"] = render_limits
+            calls["timeout_seconds"] = timeout_seconds
 
     class FakeWorker:
         def __init__(self, store, processor, *, poll_seconds):
@@ -33,7 +34,7 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
     monkeypatch.setenv("MAX_RENDER_PIXELS", "40000000")
     monkeypatch.setenv("MAX_RENDER_DIMENSION", "11000")
     monkeypatch.setattr(worker_main, "JobStore", FakeStore)
-    monkeypatch.setattr(worker_main, "PdfAnalysisJobProcessor", FakeProcessor)
+    monkeypatch.setattr(worker_main, "PdfConversionJobProcessor", FakeProcessor)
     monkeypatch.setattr(worker_main, "ConversionWorker", FakeWorker)
 
     worker_main.main()
@@ -45,4 +46,5 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
     assert calls["render_limits"].max_pixels == 40_000_000
     assert calls["render_limits"].max_dimension == 11_000
     assert calls["poll_seconds"] == 3.5
+    assert calls["timeout_seconds"] == 120
     assert calls["ran"] is True

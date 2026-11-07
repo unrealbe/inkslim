@@ -78,6 +78,8 @@ class ConversionWorker:
                 result = result or JobExecutionResult()
                 if result.next_status is JobStatus.READY_FOR_OCR:
                     self.store.mark_ready_for_ocr(job.id)
+                elif result.next_status is JobStatus.EXTRACTING:
+                    self.store.mark_extracting(job.id)
                 elif result.next_status is JobStatus.COMPLETED:
                     self.store.complete_job(
                         job.id,

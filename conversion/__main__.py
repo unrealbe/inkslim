@@ -6,7 +6,7 @@ import logging
 import os
 
 from .config import ConversionConfig
-from .pdf.processor import PdfAnalysisJobProcessor
+from .pdf.ocr_processor import PdfConversionJobProcessor
 from .pdf.renderer import PDFRenderLimits
 from .storage import JobStore
 from .worker import ConversionWorker
@@ -29,7 +29,7 @@ def main() -> None:
         max_pixels=config.max_render_pixels,
         max_dimension=config.max_render_dimension,
     )
-    processor = PdfAnalysisJobProcessor(render_limits=render_limits)
+    processor = PdfConversionJobProcessor(\n        render_limits=render_limits,\n        timeout_seconds=config.ocr_timeout_page,\n    )
     worker = ConversionWorker(
         store,
         processor,
