@@ -19,6 +19,7 @@ class ConversionConfig:
     min_render_dpi: int = 120
     max_render_pixels: int = 50_000_000
     max_render_dimension: int = 12_000
+    native_text_sample_interval: int = 10
 
     @property
     def database_path(self) -> Path:
@@ -41,6 +42,7 @@ class ConversionConfig:
             min_render_dpi=_read_int("MIN_RENDER_DPI", 120, minimum=72),
             max_render_pixels=_read_int("MAX_RENDER_PIXELS", 50_000_000, minimum=1),
             max_render_dimension=_read_int("MAX_RENDER_DIMENSION", 12_000, minimum=1),
+            native_text_sample_interval=_read_int("NATIVE_TEXT_SAMPLE_INTERVAL", 10, minimum=1),
         )
         if config.ocr_workers != 1:
             raise ValueError("OCR_WORKERS must remain 1 in conversion V1")

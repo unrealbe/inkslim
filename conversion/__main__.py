@@ -32,6 +32,7 @@ def main() -> None:
     processor = PdfConversionJobProcessor(
         render_limits=render_limits,
         timeout_seconds=config.ocr_timeout_page,
+        native_text_sample_interval=config.native_text_sample_interval,
     )
     worker = ConversionWorker(
         store,

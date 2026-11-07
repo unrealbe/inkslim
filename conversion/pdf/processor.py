@@ -34,7 +34,7 @@ def native_ocr_similarity(native_text: str, ocr_text: str) -> float:
     ocr_tokens = _normalized_tokens(ocr_text)
     if not native_tokens or not ocr_tokens:
         return 0.0
-    return SequenceMatcher(a=native_tokens, b=ocr_tokens, autojunk=False).ratio()
+    return SequenceMatcher(a=native_tokens, b=ocr_tokens).ratio()
 
 
 class PdfAnalysisJobProcessor:
@@ -158,7 +158,6 @@ class PdfAnalysisJobProcessor:
                                     try:
                                         plan = build_render_plan(
                                             analysis.width, analysis.height,
-                                            rotation=analysis.rotation,
                                             limits=self.render_limits,
                                         )
                                         analysis.render_dpi = plan.actual_dpi
