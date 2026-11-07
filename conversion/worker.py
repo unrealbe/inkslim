@@ -79,7 +79,7 @@ class ConversionWorker:
                 if result.next_status is JobStatus.READY_FOR_OCR:
                     self.store.mark_ready_for_ocr(job.id)
                 elif result.next_status is JobStatus.EXTRACTING:
-                    self.store.mark_extracting(job.id)
+                    self.store.mark_extracting(job.id, report_path=result.report_path)
                 elif result.next_status is JobStatus.COMPLETED:
                     self.store.complete_job(
                         job.id,

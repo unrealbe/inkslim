@@ -553,8 +553,10 @@ class JobStore:
             connection.commit()
         return True
 
-    def mark_extracting(self, job_id: str) -> bool:
-        """Finish the OCR phase and leave the job ready for text post-processing."""
+    def mark_extracting(
+        self, job_id: str, *, report_path: Path | str | None = None
+    ) -> bool:
+        """Finish OCR, persist its quality report path and await text post-processing."""
         now = self._now()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -572,9 +574,16 @@ class JobStore:
                 connection.commit()
                 return False
             connection.execute(
-                """UPDATE jobs SET status = ?, worker_id = NULL, current_page = NULL,
-                   completed_at = NULL, progress_message = ?, updated_at = ? WHERE id = ?""",
-                (JobStatus.EXTRACTING.value, "OCR completed; ready for text post-processing", now, job_id),
+                """UPDATE jobs SET status = ?, report_path = COALESCE(?, report_path),
+                   worker_id = NULL, current_page = NULL, completed_at = NULL,
+                   progress_message = ?, updated_at = ? WHERE id = ?""",
+                (
+                    JobStatus.EXTRACTING.value,
+                    str(report_path) if report_path is not None else None,
+                    "OCR completed; quality report saved; ready for text post-processing",
+                    now,
+                    job_id,
+                ),
             )
             connection.commit()
         return True

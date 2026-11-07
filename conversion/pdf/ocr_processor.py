@@ -11,6 +11,7 @@ from ..models import Job, JobStatus
 from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
+from ..quality_report import build_quality_report
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -87,7 +88,11 @@ class PdfOcrJobProcessor:
                     )
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after OCR")
-            return JobExecutionResult(next_status=JobStatus.EXTRACTING)
+            report_path = build_quality_report(job, workspace, total_pages=total_pages)
+            return JobExecutionResult(
+                report_path=report_path,
+                next_status=JobStatus.EXTRACTING,
+            )
         except (JobCancelled, JobProcessingError):
             raise
         except PdfAnalysisError as exc:
