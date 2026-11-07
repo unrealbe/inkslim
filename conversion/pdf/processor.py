@@ -45,17 +45,17 @@ class PdfAnalysisJobProcessor:
         render_limits: PDFRenderLimits | None = None,
         *,
         engine: OcrEngine | None = None,
-        sample_interval: int = 10,
+        sample_interval: int = 0,
         timeout_seconds: int = 120,
     ):
-        if sample_interval < 1:
-            raise ValueError("sample_interval must be positive")
+        if sample_interval < 0:
+            raise ValueError("sample_interval cannot be negative")
         self.render_limits = render_limits or PDFRenderLimits()
         self.engine = engine or TesseractOcrEngine(timeout_seconds=timeout_seconds)
         self.sample_interval = sample_interval
 
     def _validate_native_sample(self, page, analysis, job, workspace) -> None:
-        if analysis.decision is not PageDecision.USE_NATIVE:
+        if self.sample_interval == 0 or analysis.decision is not PageDecision.USE_NATIVE:
             return
         # Pages 1, 1+N, 1+2N... are stable across retries and deployments.
         if (analysis.page_number - 1) % self.sample_interval != 0:
