@@ -49,13 +49,14 @@ class JobWorkspace:
         self.dehyphenated_dir = root / "dehyphenated"
         self.hyphenation_dir = root / "hyphenation"
         self.cleaned_dir = root / "cleaned"
+        self.structure_dir = root / "structure"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.cleaned_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.cleaned_dir, self.structure_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -405,6 +406,72 @@ class JobWorkspace:
             return None
         except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
             self._quarantine_checkpoint(path, page_number, "cleaned-paragraphs", "corrupt", exc)
+            return None
+
+
+    @property
+    def structure_analysis_path(self) -> Path:
+        return self.output_dir / "structure-analysis.json"
+
+    def save_structure_analysis(self, analysis: dict[str, Any]) -> Path:
+        if analysis.get("schema_version") != 1:
+            raise ValueError("Unsupported structure analysis schema version")
+        self._atomic_json(self.structure_analysis_path, analysis)
+        return self.structure_analysis_path
+
+    def load_structure_analysis(self) -> dict[str, Any] | None:
+        path = self.structure_analysis_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if (
+                value.get("schema_version") != 1
+                or type(value.get("total_pages")) is not int
+                or value["total_pages"] < 1
+                or not isinstance(value.get("chapters"), list)
+            ):
+                raise ValueError("Structure analysis checkpoint is invalid")
+            return value
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "structure-analysis", "corrupt", exc)
+            return None
+
+    def page_structure_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.structure_dir / f"{page_number:06d}.json"
+
+    def save_page_structure(
+        self, page_number: int, annotations: list[dict[str, Any]]
+    ) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        path = self.page_structure_path(page_number)
+        self._atomic_json(path, {
+            "schema_version": 1, "page_number": page_number, "annotations": annotations,
+        })
+        return path
+
+    def load_page_structure(self, page_number: int) -> list[dict[str, Any]] | None:
+        path = self.page_structure_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            annotations = value.get("annotations")
+            if (
+                value.get("schema_version") != 1
+                or value.get("page_number") != page_number
+                or not isinstance(annotations, list)
+                or any(not isinstance(item, dict) for item in annotations)
+            ):
+                raise ValueError("Page structure checkpoint is invalid")
+            return annotations
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "page-structure", "corrupt", exc)
             return None
 
     def rendered_page_path(self, page_number: int, suffix: str = ".png") -> Path:
