@@ -66,6 +66,12 @@ def test_worker_runs_ocr_after_analysis_and_saves_page_result(tmp_path):
     dehyphenated = store.workspace(job.id).load_page_dehyphenated(1)
     assert dehyphenated == ([{"paragraph_index": 1, "text": "Dit is herkende tekst", "bbox": [0.1, 0.1, 0.9, 0.2], "confidence": 96.0, "source": "tesseract", "line_indices": [1]}], 0)
 
+    marginalia = store.workspace(job.id).load_marginalia_analysis()
+    cleaned = store.workspace(job.id).load_page_cleaned_paragraphs(1)
+    assert marginalia is not None
+    assert marginalia["removed_paragraphs"] == 0
+    assert cleaned == dehyphenated[0]
+
 
 def test_ocr_phase_skips_valid_page_result_checkpoint(tmp_path):
     source = make_scanned_pdf(tmp_path / "resume-scan.pdf")
