@@ -1218,10 +1218,13 @@ def test_cleanup_refuses_symlinked_workspace_without_touching_target(store, tmp_
 def test_storage_quota_rejects_new_job_and_preserves_existing_jobs(tmp_path):
     from conversion.storage import StorageQuotaExceededError
 
-    store = JobStore(tmp_path / "quota.sqlite3", tmp_path / "jobs", max_storage_bytes=32)
+    store = JobStore(tmp_path / "quota.sqlite3", tmp_path / "jobs", max_storage_bytes=1024)
     first_source = tmp_path / "first.pdf"
     first_source.write_bytes(b"%PDF-1.7")
     first = store.create_job(first_source, first_source.name)
+    # Lower the configured quota below current usage, then verify that the
+    # next job is rejected without deleting or corrupting the existing one.
+    store.max_storage_bytes = store.storage_usage_bytes()
     second_source = tmp_path / "second.pdf"
     second_source.write_bytes(b"%PDF-1.7" * 10)
 
