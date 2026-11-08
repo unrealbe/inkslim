@@ -793,7 +793,7 @@ INDEX_HTML = """<!doctype html>
   </section>
   <section class="card report-panel" id="report-panel" hidden aria-live="polite"></section>
 
-  <p class="hint">Your original files are never modified. Uploads are processed in temporary folders and deleted afterwards.</p>
+  <p class="hint">Your original files are never modified. Optimization uploads are deleted after processing. PDF-to-EPUB jobs, including original PDFs, checkpoints and results, are stored locally on your server while processing and retained for 24 hours after completion by default.</p>
 
   <div class="card" id="results" hidden>
     <div class="history-header">
