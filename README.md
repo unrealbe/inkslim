@@ -107,10 +107,11 @@ For the standard GHCR Compose deployment:
 
 To follow the container logs:
 
+    # Follow the web application
     docker compose logs -f web
 
-# Follow the background conversion worker
-docker compose logs -f worker
+    # Follow the background conversion worker
+    docker compose logs -f worker
 
 The Compose file on your NAS is a local file. Pulling a new image does **not** copy a changed docker-compose.yml from GitHub onto the NAS; update the local Compose file separately when its settings change. Keep the `conversion-data` volume: it contains the persistent SQLite database and conversion job workspaces. Back it up together with any other application data you want to retain.
 
@@ -136,7 +137,7 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | OCR_TIMEOUT_PAGE | 120 | Maximum Tesseract runtime per page, in seconds. |
 | OCR_WORKERS | 1 | Number of OCR workers. V1 intentionally requires exactly one. |
 | MAX_OCR_PAGES | 0 | Maximum OCR page count; 0 means unlimited. |
-| JOB_RETENTION_HOURS | 24 | Retention period configured for conversion job data.
+| JOB_RETENTION_HOURS | 24 | Intended retention period for conversion job data; automatic cleanup is not implemented yet.
 
 Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to enable login. If either is empty, authentication is disabled.
 
@@ -268,7 +269,37 @@ The current implementation foundation includes:
 - A separate dehyphenation checkpoint stage that removes explicit Unicode soft hyphens while preserving ambiguous visible hyphens and compound words.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: advanced reading-order and multi-column layout reconstruction, repeated header/footer cleanup, heading and chapter detection, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
+The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction and conservative soft-hyphen cleanup. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
+
+The repository also contains a dependency-free EPUB 3 writer. That writer is tested independently, but it is not yet connected to the PDF conversion job.
+
+### Roadmap
+
+**Implemented and covered by tests**
+
+- Persistent SQLite job queue, schema migrations, worker claiming and interrupted-job recovery.
+- PDF validation, page analysis, safe rendering and page classification.
+- Native PDF text extraction into normalized page results.
+- Tesseract TSV OCR for pages that require recognition.
+- Sampled OCR validation of native PDF text.
+- Durable per-page analysis, text, line and paragraph checkpoints.
+- Per-page and aggregate JSON quality report.
+- Initial line and paragraph reconstruction using page geometry.
+- Conservative dehyphenation of explicit Unicode soft hyphens. Visible hyphens are deliberately preserved because they may be genuine compounds or punctuation.
+
+**Next implementation milestones**
+
+1. Improve reading order, including multi-column pages and column boundaries.
+2. Detect visible end-of-line hyphenation conservatively, without joining genuine compound words.
+3. Detect and remove repeated headers, footers and page numbers.
+4. Detect headings and chapter boundaries.
+5. Connect processed paragraphs to the existing EPUB 3 writer and assemble a complete book.
+6. Validate generated conversion output with EPUBCheck and add conversion-level quality checks.
+7. Expose conversion jobs through an API, then add upload, progress and download support to the web UI.
+8. Implement job cleanup and storage quotas. JOB_RETENTION_HOURS is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
+9. Add OCR benchmarking and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
+
+The milestones are intentionally ordered: text order and structure must be reliable before we generate and expose downloadable EPUB files.
 
 ### Persistent data
 
@@ -361,8 +392,8 @@ Common error responses include 400 for missing or unsupported uploads, 413 for f
 ## Privacy and security
 
 - **Self-hosted processing:** the application does not send documents to an Inkslim cloud service.
-- **Temporary files:** web uploads and intermediate outputs are kept in a temporary directory and removed when processing finishes or fails.
-- **No persistent book library:** Inkslim does not maintain a server-side history of uploaded documents.
+- **Synchronous /shrink processing:** uploads and intermediate outputs for the existing optimization endpoint are kept in a temporary directory and removed when processing finishes or fails.
+- **Background conversion jobs:** the separate PDF-to-EPUB worker stores uploaded job inputs, SQLite job records and intermediate checkpoints in the persistent conversion-data Docker volume. This is local to your own deployment, not an Inkslim cloud service. Automatic job cleanup is not implemented yet.
 - **Optional Basic Authentication:** disabled by default. Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to require credentials.
 - **Health check:** /healthz is intentionally exempt from Basic Authentication so Docker can check container health.
 - **Network exposure:** do not expose the service directly to the public internet without additional protection. Prefer a VPN such as WireGuard or Tailscale. If using a reverse proxy, enable HTTPS and configure its upload-size limit and request timeouts.
@@ -416,8 +447,11 @@ Useful Docker commands:
     # Recreate the container
     docker compose up -d --force-recreate
 
-    # Follow application logs
-    docker compose logs -f inkslim
+    # Follow the web application logs
+    docker compose logs -f web
+
+    # Follow the background worker logs
+    docker compose logs -f worker
 
     # Show container status
     docker compose ps
@@ -471,10 +505,12 @@ The Docker image uses Python 3.12, installs the system tools required by the EPU
     │   ├── __main__.py         # Worker entry point
     │   ├── storage.py          # SQLite job store and durable checkpoints
     │   ├── quality_report.py   # Per-page and aggregate JSON quality report
-    │   ├── lines.py            # Deterministic OCR line reconstruction
+    │   ├── lines.py            # Deterministic line reconstruction
+    │   ├── paragraphs.py       # Geometry-based paragraph reconstruction
+    │   ├── dehyphenation.py    # Conservative soft-hyphen cleanup
     │   ├── worker.py           # Job claiming, recovery and execution
     │   ├── ocr/                # OCR engine interface and Tesseract TSV backend
-    │   ├── pdf/                # PDF analysis, rendering and OCR processing
+    │   ├── pdf/                # Analysis, native text, rendering and OCR pipeline
     │   └── epub/               # Dependency-free EPUB 3 writer
     ├── Dockerfile              # Container build
     ├── docker-compose.yml      # Web + worker deployment (host port 8125 -> container 8080)
