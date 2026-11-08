@@ -114,7 +114,7 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
     assert downloaded_epub.headers["Pragma"] == "no-cache"
     assert downloaded_epub.headers["Expires"] == "0"
     assert downloaded_epub.headers["Content-Disposition"].endswith(
-        f"My_book-{created['id'][:8]}.epub"
+        f"My-book-{created['id'][:8]}.epub"
     )
 
     downloaded_report = api_client.get(created["links"]["report"])
