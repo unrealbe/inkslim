@@ -688,6 +688,13 @@ INDEX_HTML = """<!doctype html>
     display:flex; justify-content:space-between; align-items:center;
     gap:12px; margin-bottom:8px; font-weight:600;
   }
+  #clear-conversion-history {
+    border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+    background:var(--bg); color:var(--text); font:inherit; font-size:.85rem;
+    cursor:pointer;
+  }
+  #clear-conversion-history:hover:not(:disabled) { border-color:var(--accent); }
+  #clear-conversion-history:disabled { opacity:.5; cursor:not-allowed; }
   #clear-history {
     border:1px solid var(--line); border-radius:8px; padding:6px 10px;
     background:var(--bg); color:var(--text); font:inherit; font-size:.85rem;
@@ -788,7 +795,10 @@ INDEX_HTML = """<!doctype html>
   </details>
 
   <section class="card" id="conversion-results" hidden>
-    <div class="history-header"><span>PDF-to-EPUB jobs</span></div>
+    <div class="history-header">
+      <span>PDF-to-EPUB history</span>
+      <button id="clear-conversion-history" type="button" disabled>Clear history</button>
+    </div>
     <ul id="conversion-list"></ul>
   </section>
   <section class="card report-panel" id="report-panel" hidden aria-live="polite"></section>
@@ -817,6 +827,7 @@ const processingAction = $("processing-action");
 const conversionOptions = $("conversion-options");
 const actionHint = $("action-hint");
 const conversionResults = $("conversion-results");
+const clearConversionHistoryButton = $("clear-conversion-history");
 const CONVERSION_HISTORY_KEY = "inkslim.conversion-jobs.v1";
 const SETTINGS_KEY = "inkslim.preferences.v1";
 
@@ -939,6 +950,9 @@ function conversionItem(id,name) {
   const title = document.createElement("div");
   title.className = "name";
   title.textContent = name;
+  const identity = document.createElement("div");
+  identity.className = "meta job-identity";
+  identity.textContent = id ? "Job " + id.slice(0,8) : "Creating job...";
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = "Submitting...";
@@ -947,15 +961,48 @@ function conversionItem(id,name) {
   progress.removeAttribute("value");
   const actions = document.createElement("div");
   actions.className = "job-actions";
-  item.append(title,meta,progress,actions);
+  item.append(title,identity,meta,progress,actions);
   conversionList.prepend(item);
   conversionResults.hidden = false;
+  updateConversionHistoryState();
   return item;
 }
 function conversionMeta(item,message,isError=false) {
   const meta = item.querySelector(".meta");
   meta.textContent = message;
   meta.classList.toggle("err",isError);
+}
+function terminalConversion(status) {
+  return ["completed","failed","cancelled"].includes(status);
+}
+function updateConversionHistoryState() {
+  conversionResults.hidden = conversionList.children.length === 0;
+  clearConversionHistoryButton.disabled =
+    !conversionList.querySelector('li[data-terminal="true"]');
+}
+function forgetSavedConversion(id) {
+  saveConversionJobs(savedConversionJobs().filter(entry => entry.id !== id));
+}
+async function deleteConversionJob(item,job) {
+  if (!window.confirm("Permanently delete this conversion, its uploaded PDF, EPUB, report and intermediate files?")) return;
+  const response = await fetch(job.links.delete,{method:"DELETE",cache:"no-store"});
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "Could not delete conversion.");
+  forgetSavedConversion(job.id);
+  item.remove();
+  updateConversionHistoryState();
+}
+function addDeleteAction(item,job) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "job-button";
+  button.textContent = "Delete";
+  button.addEventListener("click",async () => {
+    button.disabled = true;
+    try { await deleteConversionJob(item,job); }
+    catch (error) { conversionMeta(item,error.message,true); button.disabled = false; }
+  });
+  item.querySelector(".job-actions").appendChild(button);
 }
 function conversionAction(item,label,url) {
   const link = document.createElement("a");
@@ -1051,6 +1098,10 @@ function renderConversionJob(item,job) {
   actions.replaceChildren();
   const status = job.status;
   const details = job.progress || {};
+  item.dataset.terminal = terminalConversion(status) ? "true" : "false";
+  item.querySelector(".name").textContent = job.input_name || item.querySelector(".name").textContent;
+  item.querySelector(".job-identity").textContent = "Job " + (job.short_id || job.id.slice(0,8)) +
+    (job.completed_at ? " · completed " + new Date(job.completed_at).toLocaleString() : "");
   if (Number(details.total_pages) > 0) {
     progress.max = details.total_pages;
     progress.value = Math.min(details.completed_pages || 0,details.total_pages);
@@ -1072,17 +1123,23 @@ function renderConversionJob(item,job) {
     reportButton.addEventListener("click",() => showQualityReport(job.links.report));
     actions.appendChild(reportButton);
     conversionAction(item,"JSON report",job.links.report);
+    addDeleteAction(item,job);
   } else if (status === "failed") {
     conversionMeta(item,(job.error?.message || "Conversion failed.") +
       (job.error?.code ? " (" + job.error.code + ")" : ""),true);
+    addDeleteAction(item,job);
+  } else if (status === "cancelled") {
+    addDeleteAction(item,job);
   }
-  return ["completed","failed","cancelled"].includes(status);
+  updateConversionHistoryState();
+  return terminalConversion(status);
 }
 async function refreshConversion(item) {
+  if (!item.isConnected) return;
   const id = item.dataset.jobId;
   if (!id) return;
   try {
-    const response = await fetch("/api/conversions/" + encodeURIComponent(id));
+    const response = await fetch("/api/conversions/" + encodeURIComponent(id),{cache:"no-store"});
     if (!response.ok) throw new Error(response.status === 404 ? "Job no longer exists." : "Could not retrieve job status.");
     const job = await response.json();
     const finished = renderConversionJob(item,job);
@@ -1124,6 +1181,7 @@ async function submitConversion(file) {
     const job = await response.json();
     if (!response.ok) throw new Error(job.error || "Could not create conversion job.");
     item.dataset.jobId = job.id;
+    item.querySelector(".job-identity").textContent = "Job " + job.id.slice(0,8);
     const saved = savedConversionJobs().filter(entry => entry.id !== job.id);
     saved.push({id:job.id,name:file.name});
     saveConversionJobs(saved);
@@ -1144,10 +1202,50 @@ function updateProcessingAction() {
 }
 processingAction.addEventListener("change",updateProcessingAction);
 updateProcessingAction();
-for (const job of savedConversionJobs()) {
-  const item = conversionItem(job.id,job.name || "Previous PDF conversion");
-  refreshConversion(item);
+async function loadConversionHistory() {
+  try {
+    const response = await fetch("/api/conversions?limit=20",{cache:"no-store"});
+    if (!response.ok) throw new Error("Could not load conversion history.");
+    const jobs = await response.json();
+    conversionList.replaceChildren();
+    const saved = [];
+    for (const job of jobs.slice().reverse()) {
+      const item = conversionItem(job.id,job.input_name || "PDF conversion");
+      renderConversionJob(item,job);
+      saved.push({id:job.id,name:job.input_name || "PDF conversion"});
+      if (!terminalConversion(job.status)) refreshConversion(item);
+    }
+    saveConversionJobs(saved);
+    updateConversionHistoryState();
+  } catch (error) {
+    console.warn(error.message);
+    for (const job of savedConversionJobs()) {
+      const item = conversionItem(job.id,job.name || "Previous PDF conversion");
+      refreshConversion(item);
+    }
+  }
 }
+
+clearConversionHistoryButton.addEventListener("click",async () => {
+  if (!window.confirm("Clear completed, failed and cancelled conversions? Uploaded PDFs, EPUBs, reports and intermediate files will be permanently deleted. Active conversions will be kept.")) return;
+  clearConversionHistoryButton.disabled = true;
+  try {
+    const response = await fetch("/api/conversions/history",{method:"DELETE",cache:"no-store"});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Could not clear conversion history.");
+    for (const item of [...conversionList.children]) {
+      if (item.dataset.terminal === "true") item.remove();
+    }
+    const activeIds = new Set([...conversionList.children].map(item => item.dataset.jobId));
+    saveConversionJobs(savedConversionJobs().filter(job => activeIds.has(job.id)));
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    updateConversionHistoryState();
+  }
+});
+
+loadConversionHistory();
 
 function fmt(bytes) {
   if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
