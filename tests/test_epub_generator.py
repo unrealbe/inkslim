@@ -27,9 +27,9 @@ def _para(index, text, bbox=(0.1, 0.1, 0.9, 0.2)):
     }
 
 
-def _dummy_job(tmp_path, name="test-book.pdf", language="auto"):
+def _dummy_job(tmp_path, name="test-book.pdf", language="auto", job_id="11111111-1111-1111-1111-111111111111"):
     return Job(
-        id="11111111-1111-1111-1111-111111111111",
+        id=job_id,
         status=JobStatus.OCR,
         input_name=name,
         input_path=str(tmp_path / name),
@@ -64,7 +64,7 @@ def test_generate_job_epub_with_multiple_chapters(tmp_path):
 
     assert epub_path.is_file()
     assert is_valid_epub(epub_path)
-    assert epub_path.name == "avontuur.epub"
+    assert epub_path.name == "avontuur-11111111.epub"
 
     # Verify EPUB contents and XML well-formedness
     with zipfile.ZipFile(epub_path, "r") as archive:
@@ -75,6 +75,9 @@ def test_generate_job_epub_with_multiple_chapters(tmp_path):
         opf = ET.fromstring(archive.read("OEBPS/content.opf"))
         assert opf.findtext("opf:metadata/dc:language", namespaces=NS) == "nl"
         assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Avontuur"
+        assert opf.findtext("opf:metadata/dc:identifier", namespaces=NS) == (
+            "urn:uuid:11111111-1111-1111-1111-111111111111"
+        )
         spine = [item.get("idref") for item in opf.findall("opf:spine/opf:itemref", NS)]
         assert len(spine) == 2
 
@@ -182,3 +185,37 @@ def test_is_valid_epub_rejects_corrupted_archives(tmp_path):
     not_zip = tmp_path / "bad.epub"
     not_zip.write_bytes(b"This is just plain text, not a zip archive.")
     assert not is_valid_epub(not_zip)
+
+
+def test_same_source_filename_gets_distinct_job_outputs_and_identifiers(tmp_path):
+    job_ids = [
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+    ]
+    outputs = []
+
+    for index, job_id in enumerate(job_ids):
+        workspace = JobWorkspace(tmp_path / f"job-{index}")
+        workspace.create()
+        workspace.save_page_cleaned_paragraphs(1, [_para(1, f"Versie {index}.")])
+        workspace.save_structure_analysis({
+            "schema_version": 1,
+            "total_pages": 1,
+            "heading_count": 0,
+            "chapter_count": 0,
+            "chapters": [],
+        })
+        workspace.save_page_structure(1, [])
+        job = _dummy_job(tmp_path, name="same-book.pdf", job_id=job_id)
+        output = generate_job_epub(job, workspace, total_pages=1)
+        with zipfile.ZipFile(output) as archive:
+            opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+            identifier = opf.findtext("opf:metadata/dc:identifier", namespaces=NS)
+        outputs.append((output, identifier))
+
+    assert outputs[0][0].name == "same-book-11111111.epub"
+    assert outputs[1][0].name == "same-book-22222222.epub"
+    assert outputs[0][0] != outputs[1][0]
+    assert outputs[0][1] == f"urn:uuid:{job_ids[0]}"
+    assert outputs[1][1] == f"urn:uuid:{job_ids[1]}"
+    assert outputs[0][1] != outputs[1][1]

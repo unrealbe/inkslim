@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from datetime import UTC, datetime
@@ -184,6 +185,11 @@ def build_quality_report(
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "pdf_page_analysis_and_ocr_quality",
         "generated_at": timestamp.astimezone(UTC).isoformat(),
+        "generator": {
+            "name": "inkslim",
+            "version": os.environ.get("INKSLIM_VERSION", "development"),
+            "commit": os.environ.get("INKSLIM_COMMIT") or None,
+        },
         "job": {
             "id": job.id,
             "input_name": job.input_name,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import tempfile
 from pathlib import Path
 from uuid import UUID
@@ -173,9 +172,18 @@ def download_conversion(job_id: str):
     if validate_epub(path):
         logger.error("Completed conversion %s has an invalid EPUB output", job.id)
         return jsonify(error="The generated EPUB is not available."), 404
-    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(job.input_name).stem).strip("._") or "book"
-    return send_file(path, mimetype="application/epub+zip", as_attachment=True,
-                     download_name=f"{stem}.epub", conditional=True)
+    response = send_file(
+        path,
+        mimetype="application/epub+zip",
+        as_attachment=True,
+        download_name=path.name,
+        conditional=False,
+        etag=False,
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @conversion_api.get("/<job_id>/report")
@@ -193,5 +201,15 @@ def download_report(job_id: str):
             raise ValueError("Report root must be an object")
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
         return jsonify(error="The conversion report is not available."), 404
-    return send_file(path, mimetype="application/json", as_attachment=True,
-                     download_name="quality-report.json", conditional=True)
+    response = send_file(
+        path,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name="quality-report.json",
+        conditional=False,
+        etag=False,
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response

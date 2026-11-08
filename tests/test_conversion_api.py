@@ -110,11 +110,20 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
     assert downloaded_epub.status_code == 200
     assert downloaded_epub.mimetype == "application/epub+zip"
     assert downloaded_epub.data[:2] == b"PK"
+    assert downloaded_epub.headers["Cache-Control"] == "no-store, max-age=0"
+    assert downloaded_epub.headers["Pragma"] == "no-cache"
+    assert downloaded_epub.headers["Expires"] == "0"
+    assert downloaded_epub.headers["Content-Disposition"].endswith(
+        f"My_book-{created['id'][:8]}.epub"
+    )
 
     downloaded_report = api_client.get(created["links"]["report"])
     assert downloaded_report.status_code == 200
     assert downloaded_report.mimetype == "application/json"
     assert json.loads(downloaded_report.data)["schema_version"] == 2
+    assert downloaded_report.headers["Cache-Control"] == "no-store, max-age=0"
+    assert downloaded_report.headers["Pragma"] == "no-cache"
+    assert downloaded_report.headers["Expires"] == "0"
 
 
 def test_completed_job_rejects_paths_outside_workspace(api_client, tmp_path):

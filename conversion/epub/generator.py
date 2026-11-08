@@ -43,7 +43,7 @@ def generate_job_epub(
     """Build a complete EPUB 3 output from durable conversion checkpoints."""
     if total_pages < 1:
         raise ValueError("total_pages must be at least 1")
-    destination = workspace.output_dir / f"{_safe_stem(job.input_name)}.epub"
+    destination = workspace.output_dir / f"{_safe_stem(job.input_name)}-{job.id[:8]}.epub"
 
     if is_valid_epub(destination):
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
@@ -71,6 +71,9 @@ def generate_job_epub(
         cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
         title=_display_title(job.input_name), language=epub_language_for_selection(job.language),
     )
+    # A new conversion is a distinct publication, even when the source filename
+    # and book content are identical to an earlier job.
+    doc.metadata.identifier = f"urn:uuid:{job.id}"
     workspace.save_document_model(doc)
 
     if store and store.is_cancel_requested(job.id):

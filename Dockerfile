@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+ARG INKSLIM_VERSION=development
+ARG INKSLIM_COMMIT=unknown
+
 # ImageMagick and zip tools are used by the EPUB processor. Tesseract and its
 # language data are installed now so every published architecture has the
 # same OCR runtime available to the dedicated worker service.
@@ -36,7 +39,9 @@ USER app
 ENV PORT=8080 \
     MAX_UPLOAD_MB=500 \
     LOG_LEVEL=INFO \
-    INKSLIM_DATA_DIR=/data/conversion
+    INKSLIM_DATA_DIR=/data/conversion \
+    INKSLIM_VERSION=\${INKSLIM_VERSION} \
+    INKSLIM_COMMIT=\${INKSLIM_COMMIT}
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
