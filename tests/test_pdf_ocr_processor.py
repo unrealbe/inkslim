@@ -63,6 +63,8 @@ def test_worker_runs_ocr_after_analysis_and_saves_page_result(tmp_path):
     paragraphs = store.workspace(job.id).load_page_paragraphs(1)
     assert paragraphs is not None
     assert [item["text"] for item in paragraphs] == ["Dit is herkende tekst"]
+    dehyphenated = store.workspace(job.id).load_page_dehyphenated(1)
+    assert dehyphenated == ([{"paragraph_index": 1, "text": "Dit is herkende tekst", "bbox": [0.1, 0.1, 0.9, 0.2], "confidence": 96.0, "source": "tesseract", "line_indices": [1]}], 0)
 
 
 def test_ocr_phase_skips_valid_page_result_checkpoint(tmp_path):
