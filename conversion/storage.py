@@ -48,13 +48,14 @@ class JobWorkspace:
         self.paragraphs_dir = root / "paragraphs"
         self.dehyphenated_dir = root / "dehyphenated"
         self.hyphenation_dir = root / "hyphenation"
+        self.cleaned_dir = root / "cleaned"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.cleaned_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -338,6 +339,72 @@ class JobWorkspace:
             return None
         except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
             self._quarantine_checkpoint(path, page_number, "hyphenation", "corrupt", exc)
+            return None
+
+    @property
+    def marginalia_analysis_path(self) -> Path:
+        return self.output_dir / "marginalia-analysis.json"
+
+    def save_marginalia_analysis(self, analysis: dict[str, Any]) -> Path:
+        if analysis.get("schema_version") != 1:
+            raise ValueError("Unsupported marginalia analysis schema version")
+        path = self.marginalia_analysis_path
+        self._atomic_json(path, analysis)
+        return path
+
+    def load_marginalia_analysis(self) -> dict[str, Any] | None:
+        path = self.marginalia_analysis_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or not isinstance(value.get("items"), list):
+                raise ValueError("Marginalia analysis checkpoint is invalid")
+            if type(value.get("total_pages")) is not int or value["total_pages"] < 1:
+                raise ValueError("Marginalia analysis page count is invalid")
+            if not isinstance(value.get("removed"), list):
+                raise ValueError("Marginalia removal decisions are invalid")
+            return value
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "marginalia-analysis", "corrupt", exc)
+            return None
+
+    def page_cleaned_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.cleaned_dir / f"{page_number:06d}.json"
+
+    def save_page_cleaned_paragraphs(
+        self, page_number: int, paragraphs: list[dict[str, Any]]
+    ) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        path = self.page_cleaned_path(page_number)
+        self._atomic_json(path, {
+            "schema_version": 1, "page_number": page_number, "paragraphs": paragraphs,
+        })
+        return path
+
+    def load_page_cleaned_paragraphs(
+        self, page_number: int
+    ) -> list[dict[str, Any]] | None:
+        path = self.page_cleaned_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+                raise ValueError("Cleaned paragraph checkpoint metadata does not match its page")
+            paragraphs = value.get("paragraphs")
+            if not isinstance(paragraphs, list) or any(
+                not isinstance(item, dict) for item in paragraphs
+            ):
+                raise ValueError("Cleaned paragraph checkpoint has an invalid collection")
+            return paragraphs
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "cleaned-paragraphs", "corrupt", exc)
             return None
 
     def rendered_page_path(self, page_number: int, suffix: str = ".png") -> Path:
