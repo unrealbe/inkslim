@@ -234,7 +234,15 @@ class PdfOcrJobProcessor:
                 # Structure detection is document-wide and runs only after every
                 # cleaned page checkpoint is durable. Annotations never rewrite text.
                 structure = workspace.load_structure_analysis()
-                if structure is None or structure.get("total_pages") != total_pages:
+                has_all_page_structures = all(
+                    workspace.load_page_structure(page_number) is not None
+                    for page_number in range(1, total_pages + 1)
+                )
+                if (
+                    structure is None
+                    or structure.get("total_pages") != total_pages
+                    or not has_all_page_structures
+                ):
                     cleaned_pages = {}
                     for page_number in range(1, total_pages + 1):
                         paragraphs = workspace.load_page_cleaned_paragraphs(page_number)

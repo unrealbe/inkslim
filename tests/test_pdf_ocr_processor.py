@@ -139,3 +139,85 @@ def test_ocr_failure_is_reported_with_safe_error(tmp_path):
     assert failed.status is JobStatus.FAILED
     assert failed.error_code == "OCR_TIMEOUT"
     assert failed.error_message == "Text recognition exceeded the page time limit."
+
+
+def test_structure_annotations_recovered_when_interrupted_after_global_analysis(tmp_path):
+    class ChapterOcrEngine:
+        def recognize(self, image_path, languages, *, page_number=1):
+            text = f"CHAPTER {page_number}"
+            return PageResult(
+                page_number=page_number, width=200, height=300,
+                blocks=[TextBlock(
+                    text=text, bbox=(0.1, 0.08, 0.9, 0.14),
+                    block_type="text", confidence=98.0, source=TextSource.TESSERACT,
+                    line_number=1, paragraph_number=1,
+                )],
+                source=TextSource.TESSERACT, quality=QualityStatus.HIGH,
+                metrics=PageMetrics(mean_ocr_confidence=98.0),
+            )
+
+    source = make_scanned_pdf(tmp_path / "chapters.pdf", page_count=2)
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name, language="eng")
+    engine = ChapterOcrEngine()
+    processor = PdfConversionJobProcessor(engine=engine)
+    worker = ConversionWorker(store, processor, worker_id="test-worker")
+
+    # Step 1: Run analysis
+    worker.run_once()
+    assert store.get_job(job.id).status is JobStatus.READY_FOR_OCR
+
+    # Step 2: Run OCR through to extracting
+    worker.run_once()
+    assert store.get_job(job.id).status is JobStatus.EXTRACTING
+
+    workspace = store.workspace(job.id)
+    p1_structure = workspace.load_page_structure(1)
+    p2_structure = workspace.load_page_structure(2)
+    assert p1_structure is not None and len(p1_structure) == 1
+    assert p2_structure is not None and len(p2_structure) == 1
+    assert p1_structure[0]["text"] == "CHAPTER 1"
+    assert p2_structure[0]["text"] == "CHAPTER 2"
+
+    # Simulate interruption: global structure analysis exists, but page 2 structure was interrupted
+    workspace.page_structure_path(2).unlink()
+    assert workspace.load_page_structure(2) is None
+    assert workspace.load_structure_analysis() is not None
+
+    # Reset status to READY_FOR_OCR to simulate interrupted job recovery
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = ?, worker_id = NULL WHERE id = ?",
+            (JobStatus.READY_FOR_OCR.value, job.id),
+        )
+
+    # Worker resumes the job
+    worker.run_once()
+    assert store.get_job(job.id).status is JobStatus.EXTRACTING
+
+    # Verify page 2 structure was deterministically restored, not left as []
+    restored_p2_structure = workspace.load_page_structure(2)
+    assert restored_p2_structure is not None
+    assert len(restored_p2_structure) == 1
+    assert restored_p2_structure[0]["text"] == "CHAPTER 2"
+    assert restored_p2_structure[0]["chapter_start"] is True
+
+    # Verify build_document_model produces the exact expected structure
+    from conversion.document import build_document_model
+    cleaned_pages = {
+        1: workspace.load_page_cleaned_paragraphs(1),
+        2: workspace.load_page_cleaned_paragraphs(2),
+    }
+    structure_analysis = workspace.load_structure_analysis()
+    page_annotations = {
+        1: workspace.load_page_structure(1),
+        2: workspace.load_page_structure(2),
+    }
+    doc = build_document_model(
+        cleaned_pages, structure_analysis, page_annotations,
+        total_pages=2, title="Recovered Book", language="en"
+    )
+    assert len(doc.chapters) == 2
+    assert doc.chapters[0].title == "CHAPTER 1"
+    assert doc.chapters[1].title == "CHAPTER 2"
+

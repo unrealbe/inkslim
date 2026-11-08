@@ -308,3 +308,63 @@ def test_workspace_document_model_checkpoint(tmp_path):
     assert loaded.metadata.title == "Workspace Book"
     assert len(loaded.chapters) == 1
     assert loaded.chapters[0].paragraphs[0].text == "Hello world"
+
+
+def test_structure_recovery_after_partial_checkpoint_interruption(tmp_path):
+    """Simulate worker interrupted after save_structure_analysis but before all page checkpoints."""
+    from conversion.storage import JobWorkspace
+    from conversion.structure import detect_document_structure
+
+    workspace = JobWorkspace(tmp_path / "interrupted-job")
+    workspace.create()
+
+    p1 = [_para(1, "CHAPTER 1"), _para(2, "Content of chapter one.")]
+    p2 = [_para(1, "CHAPTER 2"), _para(2, "Content of chapter two.")]
+    workspace.save_page_cleaned_paragraphs(1, p1)
+    workspace.save_page_cleaned_paragraphs(2, p2)
+
+    structure, page_annotations = detect_document_structure({1: p1, 2: p2}, total_pages=2)
+    workspace.save_structure_analysis(structure)
+    workspace.save_page_structure(1, page_annotations[1])
+
+    # Interruption: page 2 structure was NOT written
+    assert workspace.load_page_structure(2) is None
+    assert workspace.load_structure_analysis() is not None
+
+    # Deterministic recovery logic
+    total_pages = 2
+    has_all_page_structures = all(
+        workspace.load_page_structure(page_number) is not None
+        for page_number in range(1, total_pages + 1)
+    )
+    assert not has_all_page_structures
+
+    # Re-run detection deterministically from cleaned paragraphs
+    cleaned_pages = {
+        p: workspace.load_page_cleaned_paragraphs(p)
+        for p in range(1, total_pages + 1)
+    }
+    recovered_structure, recovered_page_annotations = detect_document_structure(
+        cleaned_pages, total_pages=total_pages
+    )
+    for p in range(1, total_pages + 1):
+        if workspace.load_page_structure(p) is None:
+            workspace.save_page_structure(p, recovered_page_annotations.get(p, []))
+
+    # Assert page 2 is restored
+    assert workspace.load_page_structure(2) is not None
+    assert len(workspace.load_page_structure(2)) == 1
+    assert workspace.load_page_structure(2)[0]["text"] == "CHAPTER 2"
+
+    # Assert document model produces exact expected chapters
+    doc = build_document_model(
+        cleaned_pages,
+        workspace.load_structure_analysis(),
+        {p: workspace.load_page_structure(p) for p in range(1, total_pages + 1)},
+        total_pages=2,
+        title="Interrupted Book",
+    )
+    assert len(doc.chapters) == 2
+    assert doc.chapters[0].title == "CHAPTER 1"
+    assert doc.chapters[1].title == "CHAPTER 2"
+
