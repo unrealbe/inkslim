@@ -15,6 +15,7 @@ from ..quality_report import build_quality_report
 from ..lines import ReconstructedLine, reconstruct_lines
 from ..paragraphs import reconstruct_paragraphs
 from ..dehyphenation import dehyphenate_paragraphs
+from ..hyphenation import detect_visible_hyphenation_candidates
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -148,6 +149,15 @@ class PdfOcrJobProcessor:
                         paragraph.to_dict() for paragraph in reconstruct_paragraphs(lines)
                     ]
                     workspace.save_page_paragraphs(page_number, raw_paragraphs)
+
+                    # Visible hyphens at line endings are ambiguous. Record
+                    # candidates for later language-aware review; never alter
+                    # the paragraph text automatically at this stage.
+                    if workspace.load_page_hyphenation_candidates(page_number) is None:
+                        candidates = detect_visible_hyphenation_candidates(lines)
+                        workspace.save_page_hyphenation_candidates(
+                            page_number, candidates
+                        )
 
                     # Keep the original paragraph checkpoint immutable. The
                     # dehyphenated representation is a separate resumable stage.

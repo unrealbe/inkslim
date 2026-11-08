@@ -46,13 +46,14 @@ class JobWorkspace:
         self.lines_dir = root / "lines"
         self.paragraphs_dir = root / "paragraphs"
         self.dehyphenated_dir = root / "dehyphenated"
+        self.hyphenation_dir = root / "hyphenation"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -297,6 +298,45 @@ class JobWorkspace:
             return None
         except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
             self._quarantine_checkpoint(path, page_number, "dehyphenated", "corrupt", exc)
+            return None
+
+    def page_hyphenation_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.hyphenation_dir / f"{page_number:06d}.json"
+
+    def save_page_hyphenation_candidates(
+        self, page_number: int, candidates: list[dict[str, Any]]
+    ) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        path = self.page_hyphenation_path(page_number)
+        self._atomic_json(path, {
+            "schema_version": 1,
+            "page_number": page_number,
+            "candidates": candidates,
+        })
+        return path
+
+    def load_page_hyphenation_candidates(
+        self, page_number: int
+    ) -> list[dict[str, Any]] | None:
+        path = self.page_hyphenation_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+                raise ValueError("Hyphenation checkpoint metadata does not match its page")
+            candidates = value.get("candidates")
+            if not isinstance(candidates, list) or any(
+                not isinstance(item, dict) for item in candidates
+            ):
+                raise ValueError("Hyphenation checkpoint has an invalid candidates collection")
+            return candidates
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "hyphenation", "corrupt", exc)
             return None
 
     def rendered_page_path(self, page_number: int, suffix: str = ".png") -> Path:

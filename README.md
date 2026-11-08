@@ -267,6 +267,7 @@ The current implementation foundation includes:
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
 - Conservative per-page paragraph reconstruction shared by native PDF text and OCR, with durable paragraph checkpoints.
 - A separate dehyphenation checkpoint stage that removes explicit Unicode soft hyphens while preserving ambiguous visible hyphens and compound words.
+- A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
 The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction and conservative soft-hyphen cleanup. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
@@ -290,7 +291,7 @@ The repository also contains a dependency-free EPUB 3 writer. That writer is tes
 **Next implementation milestones**
 
 1. Improve reading order, including multi-column pages and column boundaries.
-2. Detect visible end-of-line hyphenation conservatively, without joining genuine compound words.
+2. Add language-aware validation so safe visible-hyphen candidates can eventually be resolved automatically; ambiguous cases must remain unchanged.
 3. Detect and remove repeated headers, footers and page numbers.
 4. Detect headings and chapter boundaries.
 5. Connect processed paragraphs to the existing EPUB 3 writer and assemble a complete book.
@@ -508,6 +509,7 @@ The Docker image uses Python 3.12, installs the system tools required by the EPU
     │   ├── lines.py            # Deterministic line reconstruction
     │   ├── paragraphs.py       # Geometry-based paragraph reconstruction
     │   ├── dehyphenation.py    # Conservative soft-hyphen cleanup
+    │   ├── hyphenation.py      # Advisory visible line-end hyphen detection
     │   ├── worker.py           # Job claiming, recovery and execution
     │   ├── ocr/                # OCR engine interface and Tesseract TSV backend
     │   ├── pdf/                # Analysis, native text, rendering and OCR pipeline
