@@ -29,7 +29,7 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'fetch("/api/conversions"' in html
     assert 'method:"DELETE"' in html
     assert 'Download EPUB' in html
-    assert 'Quality report' in html
+    assert 'JSON report' in html
 
 
 def test_existing_shrink_interface_remains_available():
