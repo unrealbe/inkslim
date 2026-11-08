@@ -46,6 +46,7 @@ def test_extract_page_images_preserves_png_jpeg_and_normalized_position(tmp_path
         finally:
             page.close()
     assert len(result.images) == 2
+    assert result.detected_count == 2
     assert {image.media_type for image in result.images} == {"image/png", "image/jpeg"}
     assert all(0 < image.coverage < 1 for image in result.images)
     assert all((workspace.root / image.source_path).is_file() for image in result.images)

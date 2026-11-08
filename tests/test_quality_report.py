@@ -10,6 +10,7 @@ from conversion.document import DocumentChapter, DocumentModel, DocumentParagrap
 from conversion.epub.builder import EpubMetadata
 
 from conversion.models import PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
+from conversion.pdf.images import PageImage, PageImages
 from conversion.pdf.models import PageAnalysis, PageDecision
 from conversion.quality_report import build_quality_report
 from conversion.storage import JobStore
@@ -72,7 +73,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 2
+    assert report["schema_version"] == 3
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
@@ -197,3 +198,68 @@ def test_quality_report_warns_when_no_body_text_was_reconstructed(tmp_path):
     ).read_text(encoding="utf-8"))
     assert report["output"]["word_count"] == 0
     assert report["content_quality"]["warnings"][0]["code"] == "NO_BODY_TEXT_EXTRACTED"
+
+
+def test_quality_report_summarizes_extracted_images_and_incomplete_extraction(tmp_path):
+    source = tmp_path / "illustrated.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    for page_number in range(1, 4):
+        workspace.save_page_analysis(_analysis(page_number, PageDecision.USE_NATIVE))
+
+    first_asset = workspace.root / "images/000001-0001.png"
+    second_asset = workspace.root / "images/000001-0002.jpg"
+    first_asset.parent.mkdir(parents=True, exist_ok=True)
+    first_asset.write_bytes(b"png-image-data")
+    second_asset.write_bytes(b"jpeg-image-data")
+    page_images = (
+        PageImage(1, 1, (0.1, 0.1, 0.5, 0.5), 100, 100,
+                  "image/png", "images/000001-0001.png", 0.16),
+        PageImage(1, 2, (0.5, 0.1, 0.9, 0.5), 200, 100,
+                  "image/jpeg", "images/000001-0002.jpg", 0.16),
+    )
+    workspace.save_page_images(PageImages(1, page_images, detected_count=2))
+    workspace.save_page_images(PageImages(
+        2, (), ("IMAGE_EXTRACTION_FAILED:1",), detected_count=1
+    ))
+    workspace.save_page_images(PageImages(3, (), detected_count=0))
+
+    report_path = build_quality_report(job, workspace, total_pages=3)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    images = report["images"]
+
+    assert images["status"] == "not_yet_embedded"
+    assert images["pages_scanned"] == 3
+    assert images["pages_with_images"] == 2
+    assert images["detected_count"] == 3
+    assert images["detection_complete"] is True
+    assert images["extracted_count"] == 2
+    assert images["not_extracted_count"] == 1
+    assert images["missing_asset_count"] == 0
+    assert images["extracted_bytes"] == len(b"png-image-data") + len(b"jpeg-image-data")
+    assert images["embedded_in_epub"] is None
+    assert images["warnings"] == [{
+        "code": "IMAGE_EXTRACTION_FAILED",
+        "affected_page_count": 1,
+        "page_numbers": [2],
+    }]
+    assert "images/000001-0001.png" not in report_path.read_text(encoding="utf-8")
+    assert report["pages"][0]["images"]["detected_count"] == 2
+
+
+def test_quality_report_flags_missing_image_checkpoints(tmp_path):
+    source = tmp_path / "partial.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.EMPTY))
+
+    report = json.loads(build_quality_report(
+        job, workspace, total_pages=1
+    ).read_text(encoding="utf-8"))
+    assert report["images"]["detection_complete"] is False
+    assert report["images"]["missing_checkpoint_pages"] == [1]

@@ -301,15 +301,19 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 2 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 3 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
+- Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
+- An explicit status showing that extracted images are not yet embedded in the EPUB.
 - Reconstructed chapter, paragraph, heading and word counts.
 - Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
 - Text-page coverage across non-empty source pages.
 - Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
 
 The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes both page-level warnings and content-quality warning entries.
+
+Image metrics are derived from durable per-page image checkpoints. If a checkpoint or extracted asset is missing, the report flags incomplete detection or missing assets rather than silently treating the page as image-free. Internal asset paths are not exposed.
 
 The report contains aggregate metrics and diagnostics only. It deliberately does not store recognized book text.
 

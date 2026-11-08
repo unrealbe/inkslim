@@ -66,25 +66,34 @@ class PageImages:
     page_number: int
     images: tuple[PageImage, ...] = ()
     warnings: tuple[str, ...] = ()
+    detected_count: int | None = None
 
     def __post_init__(self) -> None:
         if self.page_number < 1:
             raise ValueError("page_number must be positive")
         if any(image.page_number != self.page_number for image in self.images):
             raise ValueError("image page number does not match checkpoint")
+        if self.detected_count is not None and self.detected_count < len(self.images):
+            raise ValueError("detected_count cannot be less than extracted images")
+        if self.detected_count is None and self.images:
+            object.__setattr__(self, "detected_count", len(self.images))
 
     def to_dict(self) -> dict[str, Any]:
         return {"schema_version": 1, "page_number": self.page_number,
                 "images": [image.to_dict() for image in self.images],
-                "warnings": list(self.warnings)}
+                "warnings": list(self.warnings),
+                "detected_count": self.detected_count}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> PageImages:
         if value.get("schema_version") != 1:
             raise ValueError("Unsupported page-image checkpoint schema")
-        return cls(int(value["page_number"]),
-                   tuple(PageImage.from_dict(item) for item in value.get("images", [])),
-                   tuple(str(item) for item in value.get("warnings", [])))
+        images = tuple(PageImage.from_dict(item) for item in value.get("images", []))
+        warnings = tuple(str(item) for item in value.get("warnings", []))
+        detected_count = value.get("detected_count")
+        if "detected_count" not in value and "IMAGE_OBJECT_SCAN_FAILED" not in warnings:
+            detected_count = len(images)
+        return cls(int(value["page_number"]), images, warnings, detected_count)
 
 
 def _normalized_bbox(page, image) -> tuple[float, float, float, float]:
@@ -133,7 +142,7 @@ def extract_page_images(page, page_number: int, workspace) -> PageImages:
         objects = list(page.get_objects(filter=IMAGE_OBJECT_FILTER, max_depth=15))
     except Exception:
         logger.warning("Could not enumerate PDF images on page %d", page_number, exc_info=True)
-        return PageImages(page_number, warnings=("IMAGE_OBJECT_SCAN_FAILED",))
+        return PageImages(page_number, warnings=("IMAGE_OBJECT_SCAN_FAILED",), detected_count=None)
 
     workspace.images_dir.mkdir(parents=True, exist_ok=True)
     results: list[PageImage] = []
@@ -162,4 +171,4 @@ def extract_page_images(page, page_number: int, workspace) -> PageImages:
                            image_index, page_number, exc, exc_info=True)
             _remove_candidates(prefix)
             warnings.append(f"IMAGE_EXTRACTION_FAILED:{image_index}")
-    return PageImages(page_number, tuple(results), tuple(warnings))
+    return PageImages(page_number, tuple(results), tuple(warnings), detected_count=len(objects))

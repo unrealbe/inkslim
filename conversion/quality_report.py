@@ -15,7 +15,7 @@ from .language import detect_page_language, ocr_languages_for_selection
 from .pdf.models import PageAnalysis, PageDecision
 from .storage import JobWorkspace
 
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -39,6 +39,76 @@ def _document_statistics(workspace: JobWorkspace) -> dict[str, int]:
         "word_count": sum(len(_WORD_RE.findall(paragraph.text)) for paragraph in paragraphs),
     }
 
+
+
+
+def _image_statistics(workspace: JobWorkspace, total_pages: int) -> dict[str, Any]:
+    """Summarize extracted image assets without exposing their internal paths."""
+    pages_scanned = 0
+    pages_with_images: set[int] = set()
+    detected_count = 0
+    extracted_count = 0
+    not_extracted_count = 0
+    missing_asset_count = 0
+    extracted_bytes = 0
+    scan_failure_pages: list[int] = []
+    missing_checkpoint_pages: list[int] = []
+    warning_pages: dict[str, set[int]] = {}
+
+    root = workspace.root.resolve()
+    for page_number in range(1, total_pages + 1):
+        checkpoint = workspace.load_page_images(page_number)
+        if checkpoint is None:
+            missing_checkpoint_pages.append(page_number)
+            continue
+
+        pages_scanned += 1
+        if checkpoint.detected_count is None:
+            scan_failure_pages.append(page_number)
+        else:
+            detected_count += checkpoint.detected_count
+            not_extracted_count += max(0, checkpoint.detected_count - len(checkpoint.images))
+            if checkpoint.detected_count:
+                pages_with_images.add(page_number)
+        if checkpoint.images:
+            pages_with_images.add(page_number)
+
+        for warning in checkpoint.warnings:
+            code = warning.split(":", 1)[0]
+            warning_pages.setdefault(code, set()).add(page_number)
+
+        for image in checkpoint.images:
+            asset = workspace.root / image.source_path
+            try:
+                resolved = asset.resolve(strict=True)
+                if not resolved.is_relative_to(root) or asset.is_symlink() or not resolved.is_file():
+                    raise OSError("Image asset is not a regular file inside the job workspace")
+                extracted_count += 1
+                extracted_bytes += resolved.stat().st_size
+            except (OSError, RuntimeError):
+                missing_asset_count += 1
+
+    warnings = [
+        {"code": code, "affected_page_count": len(page_numbers),
+         "page_numbers": sorted(page_numbers)[:100]}
+        for code, page_numbers in sorted(warning_pages.items())
+    ]
+    detection_complete = not scan_failure_pages and not missing_checkpoint_pages
+    return {
+        "status": "not_yet_embedded",
+        "pages_scanned": pages_scanned,
+        "pages_with_images": len(pages_with_images),
+        "detected_count": detected_count,
+        "detection_complete": detection_complete,
+        "extracted_count": extracted_count,
+        "not_extracted_count": not_extracted_count,
+        "missing_asset_count": missing_asset_count,
+        "extracted_bytes": extracted_bytes,
+        "embedded_in_epub": None,
+        "scan_failure_pages": scan_failure_pages[:100],
+        "missing_checkpoint_pages": missing_checkpoint_pages[:100],
+        "warnings": warnings,
+    }
 
 def build_quality_report(
     job: Job,
@@ -112,6 +182,7 @@ def build_quality_report(
                     similarity = None
                 break
 
+        page_images = workspace.load_page_images(page_number)
         page: dict[str, Any] = {
             "page_number": page_number,
             "decision": analysis.decision.value,
@@ -131,6 +202,13 @@ def build_quality_report(
             "native_ocr_similarity": similarity,
             "has_extracted_text": has_text,
             "warnings": warnings,
+            "images": (
+                {
+                    "detected_count": page_images.detected_count,
+                    "extracted_count": len(page_images.images),
+                    "warnings": list(page_images.warnings),
+                } if page_images is not None else None
+            ),
             "result": None,
         }
         if result is not None:
@@ -154,6 +232,7 @@ def build_quality_report(
     marginalia = workspace.load_marginalia_analysis()
     structure = workspace.load_structure_analysis()
     content_stats = _document_statistics(workspace)
+    image_stats = _image_statistics(workspace, total_pages)
     source_path = Path(job.input_path)
     source_size = source_path.stat().st_size if source_path.is_file() else None
     output = Path(output_path) if output_path is not None else None
@@ -206,6 +285,7 @@ def build_quality_report(
             "heading_count": structure["heading_count"] if structure else 0,
             "chapter_count": structure["chapter_count"] if structure else 0,
         },
+        "images": image_stats,
         "output": {
             "format": "epub",
             "source_pdf_bytes": source_size,

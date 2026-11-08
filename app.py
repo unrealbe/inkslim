@@ -1069,6 +1069,34 @@ function showQualityReport(url) {
       (confidence == null ? "n/a" : Number(confidence).toFixed(2) + "%") +
       " · Native: " + (sources.native || 0) + " · Tesseract: " + (sources.tesseract || 0);
     panel.appendChild(diagnostics);
+    const imageStats = report.images || {};
+    const imageTitle = document.createElement("h3");
+    imageTitle.textContent = "Image preservation";
+    const imageDetails = document.createElement("p");
+    imageDetails.textContent =
+      (imageStats.pages_with_images || 0) + " pages with images · " +
+      (imageStats.detected_count || 0) + " detected · " +
+      (imageStats.extracted_count || 0) + " extracted";
+    const imageStorage = document.createElement("p");
+    imageStorage.className = "meta";
+    imageStorage.textContent =
+      "Not extracted: " + (imageStats.not_extracted_count || 0) +
+      " · Missing assets: " + (imageStats.missing_asset_count || 0) +
+      " · Extracted data: " + fmt(imageStats.extracted_bytes || 0);
+    const imageStatus = document.createElement("p");
+    imageStatus.className = "meta";
+    imageStatus.textContent = imageStats.status === "not_yet_embedded"
+      ? "Images have been extracted from the PDF but are not yet included in the EPUB."
+      : "Image extraction status unavailable.";
+    panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
+    if (imageStats.detection_complete === false) {
+      const imageNote = document.createElement("p");
+      imageNote.className = "meta";
+      imageNote.textContent = "Image detection is incomplete: " +
+        (imageStats.scan_failure_pages || []).length + " scan failures · " +
+        (imageStats.missing_checkpoint_pages || []).length + " missing page checkpoints.";
+      panel.appendChild(imageNote);
+    }
     const warningTitle = document.createElement("h3");
     warningTitle.textContent = "Content warnings";
     const warnings = document.createElement("p");
