@@ -45,6 +45,8 @@ def _job_or_404(job_id: str) -> Job | tuple:
 def _job_json(job: Job) -> dict:
     payload = {
         "id": job.id,
+        "short_id": job.id.split("-", 1)[0],
+        "input_name": job.input_name,
         "status": job.status.value,
         "language": job.language,
         "progress": {
@@ -66,6 +68,7 @@ def _job_json(job: Job) -> dict:
             "self": url_for("conversion_api.get_conversion", job_id=job.id),
             "download": url_for("conversion_api.download_conversion", job_id=job.id),
             "report": url_for("conversion_api.download_report", job_id=job.id),
+            "delete": url_for("conversion_api.delete_conversion_history", job_id=job.id),
         },
     }
     return payload
@@ -86,6 +89,30 @@ def _completed_file(job: Job, stored_path: str | None, filename: str):
     except (OSError, ValueError, RuntimeError):
         return None, (jsonify(error="The requested output is not available."), 404)
     return path, None
+
+
+def _no_store(response):
+    return _no_store(response)
+
+
+@conversion_api.get("")
+def list_conversions():
+    try:
+        limit = min(max(int(request.args.get("limit", "20")), 1), 100)
+    except ValueError:
+        return jsonify(error="limit must be an integer"), 400
+    response = jsonify([_job_json(job) for job in _store().list_jobs(limit)])
+    return _no_store(response)
+
+
+@conversion_api.delete("/history")
+def clear_conversion_history():
+    try:
+        removed = _store().clear_terminal_jobs()
+    except (OSError, ValueError):
+        logger.exception("Could not clear conversion history")
+        return jsonify(error="Conversion history could not be cleared."), 500
+    return _no_store(jsonify(removed=removed))
 
 
 @conversion_api.post("")
@@ -161,6 +188,25 @@ def cancel_conversion(job_id: str):
     return response
 
 
+@conversion_api.delete("/<job_id>/history")
+def delete_conversion_history(job_id: str):
+    job = _job_or_404(job_id)
+    if isinstance(job, tuple):
+        return job
+    try:
+        deleted = _store().delete_job(job.id)
+    except InvalidJobStateError:
+        return _no_store(jsonify(
+            error="Active conversions must be cancelled before deletion."
+        )), 409
+    except (OSError, ValueError):
+        logger.exception("Could not delete conversion job %s", job.id)
+        return _no_store(jsonify(error="The conversion could not be deleted.")), 500
+    if not deleted:
+        return _no_store(jsonify(error="Conversion job not found.")), 404
+    return _no_store(jsonify(deleted=True, id=job.id))
+
+
 @conversion_api.get("/<job_id>/download")
 def download_conversion(job_id: str):
     job = _job_or_404(job_id)
@@ -205,7 +251,7 @@ def download_report(job_id: str):
         path,
         mimetype="application/json",
         as_attachment=True,
-        download_name="quality-report.json",
+        download_name=f"quality-report-{job.id[:8]}.json",
         conditional=False,
         etag=False,
     )
