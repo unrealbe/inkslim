@@ -75,11 +75,11 @@ def test_reconstruct_lines_keeps_full_width_heading_between_column_bands():
 def test_reconstruct_lines_does_not_infer_columns_without_vertical_overlap():
     result = make_result([
         block("Top left", (0.08, 0.05, 0.43, 0.08), 1),
-        block("Top right", (0.57, 0.05, 0.92, 0.08), 2),
-        block("Bottom left", (0.08, 0.70, 0.43, 0.73), 3),
-        block("Bottom right", (0.57, 0.70, 0.92, 0.73), 4),
+        block("Top left second", (0.08, 0.10, 0.43, 0.13), 2),
+        block("Bottom right", (0.57, 0.70, 0.92, 0.73), 3),
+        block("Bottom right second", (0.57, 0.75, 0.92, 0.78), 4),
     ])
-    # With only one line at each vertical level, the evidence is insufficient.
+    # These are vertically separate text regions, not parallel columns.
     assert [line.text for line in reconstruct_lines(result)] == [
-        "Top left", "Top right", "Bottom left", "Bottom right"
+        "Top left", "Top left second", "Bottom right", "Bottom right second"
     ]
