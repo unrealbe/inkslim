@@ -1,5 +1,12 @@
 """Local, resumable document-conversion infrastructure for Inkslim."""
 
+from .document import (
+    DOCUMENT_MODEL_VERSION,
+    DocumentChapter,
+    DocumentModel,
+    DocumentParagraph,
+    build_document_model,
+)
 from .models import (
     Job,
     JobStatus,
@@ -19,6 +26,10 @@ from .worker import (
 
 __all__ = [
     "ConversionWorker",
+    "DOCUMENT_MODEL_VERSION",
+    "DocumentChapter",
+    "DocumentModel",
+    "DocumentParagraph",
     "Job",
     "JobCancelled",
     "JobExecutionResult",
@@ -31,4 +42,5 @@ __all__ = [
     "QualityStatus",
     "TextBlock",
     "TextSource",
+    "build_document_model",
 ]

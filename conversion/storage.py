@@ -438,6 +438,35 @@ class JobWorkspace:
             self._quarantine_checkpoint(path, 1, "structure-analysis", "corrupt", exc)
             return None
 
+    @property
+    def document_model_path(self) -> Path:
+        return self.output_dir / "document-model.json"
+
+    def save_document_model(self, model: Any) -> Path:
+        data = model.to_dict() if hasattr(model, "to_dict") else model
+        if data.get("schema_version") != 1:
+            raise ValueError("Unsupported document model schema version")
+        self._atomic_json(self.document_model_path, data)
+        return self.document_model_path
+
+    def load_document_model(self) -> Any | None:
+        path = self.document_model_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if (
+                value.get("schema_version") != 1
+                or not isinstance(value.get("chapters"), list)
+            ):
+                raise ValueError("Document model checkpoint is invalid")
+            from .document import DocumentModel
+            return DocumentModel.from_dict(value)
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "document-model", "corrupt", exc)
+            return None
+
     def page_structure_path(self, page_number: int) -> Path:
         if page_number < 1:
             raise ValueError("page_number must be at least 1")
