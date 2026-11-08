@@ -649,9 +649,26 @@ INDEX_HTML = """<!doctype html>
     text-decoration:none; font-weight:600;
   }
   h2 { font-size:1.15rem; margin:0 0 6px; }
-  #conversion-language {
+  #conversion-language, #processing-action {
     width:100%; margin:4px 0 12px; padding:8px; font:inherit; color:var(--text);
     background:var(--bg); border:1px solid var(--line); border-radius:8px;
+  }
+  #conversion-options[hidden], .mode-fields[hidden] { display:none !important; }
+  .report-panel { margin-top:16px; }
+  .report-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .report-stat { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:12px; }
+  .report-stat strong { display:block; font-size:1.35rem; }
+  .report-stat span { color:var(--muted); font-size:.82rem; }
+  .report-bar { height:9px; background:var(--line); border-radius:99px; overflow:hidden; margin:8px 0; }
+  .report-bar span { display:block; height:100%; background:var(--accent); }
+  .report-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .report-actions button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--bg); color:var(--text); font:inherit; cursor:pointer; }
+  @media print {
+    body { background:white; color:black; padding:0; }
+    body > main > :not(#report-panel) { display:none !important; }
+    #report-panel { display:block !important; border:0; color:black; }
+    #report-panel .report-stat { background:white; }
+    #report-panel .report-actions { display:none; }
   }
   .conversion-drop {
     border:2px dashed var(--line); border-radius:12px; padding:24px 16px;
@@ -696,6 +713,25 @@ INDEX_HTML = """<!doctype html>
     <span>or click to browse</span>
     <input id="file" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" multiple hidden>
   </div>
+
+  <section class="card">
+    <label for="processing-action">What would you like to do?</label>
+    <select id="processing-action">
+      <option value="shrink">Make smaller — optimize PDF or EPUB</option>
+      <option value="convert">Convert PDF to EPUB — create a reflowable e-book</option>
+    </select>
+    <div id="conversion-options" hidden>
+      <label for="conversion-language">OCR language</label>
+      <select id="conversion-language">
+        <option value="auto">Automatic (Dutch + English)</option>
+        <option value="nld">Dutch</option><option value="eng">English</option>
+        <option value="nld+eng">Dutch + English</option><option value="fra">French</option>
+        <option value="deu">German</option><option value="fra+eng">French + English</option>
+      </select>
+      <p class="hint">Scanned pages are processed with OCR. Source-PDF illustrations are not included yet.</p>
+    </div>
+    <p class="hint" id="action-hint">PDF and EPUB files are optimized while preserving their original format.</p>
+  </section>
 
   <details class="card settings-panel" id="epub-settings" open>
     <summary>EPUB settings</summary>
@@ -751,30 +787,11 @@ INDEX_HTML = """<!doctype html>
     <p class="hint">These settings apply only to PDF files and are independent of EPUB settings.</p>
   </details>
 
-  <section class="card" id="conversion-panel">
-    <h2>Convert PDF to EPUB</h2>
-    <p class="hint">Create a reflowable EPUB with selectable text. Scanned pages are processed with OCR. Illustrations from the source PDF are not included yet.</p>
-    <label for="conversion-language">OCR language</label>
-    <select id="conversion-language">
-      <option value="auto">Automatic (Dutch + English)</option>
-      <option value="nld">Dutch</option>
-      <option value="eng">English</option>
-      <option value="nld+eng">Dutch + English</option>
-      <option value="fra">French</option>
-      <option value="deu">German</option>
-      <option value="fra+eng">French + English</option>
-    </select>
-    <div id="conversion-drop" class="conversion-drop" tabindex="0" role="button" aria-label="Choose PDF files for conversion">
-      <strong>Choose PDF files to convert</strong>
-      <span>or drop them here</span>
-      <input id="conversion-file" type="file" accept=".pdf,application/pdf" multiple hidden>
-    </div>
-    <p class="hint">Conversions run in the background. Keep this page open to follow progress; recent jobs are restored when you return in the same browser.</p>
-    <div id="conversion-results" hidden>
-      <div class="history-header"><span>PDF-to-EPUB jobs</span></div>
-      <ul id="conversion-list"></ul>
-    </div>
+  <section class="card" id="conversion-results" hidden>
+    <div class="history-header"><span>PDF-to-EPUB jobs</span></div>
+    <ul id="conversion-list"></ul>
   </section>
+  <section class="card report-panel" id="report-panel" hidden aria-live="polite"></section>
 
   <p class="hint">Your original files are never modified. Uploads are processed in temporary folders and deleted afterwards.</p>
 
@@ -795,9 +812,10 @@ const pdfMode = $("pdf_mode");
 const pdfOptimizeFields = $("pdf-optimize-fields");
 const pdfEreaderFields = $("pdf-ereader-fields");
 const pdfModeHint = $("pdf-mode-hint");
-const conversionDrop = $("conversion-drop");
-const conversionInput = $("conversion-file");
 const conversionList = $("conversion-list");
+const processingAction = $("processing-action");
+const conversionOptions = $("conversion-options");
+const actionHint = $("action-hint");
 const conversionResults = $("conversion-results");
 const CONVERSION_HISTORY_KEY = "inkslim.conversion-jobs.v1";
 const SETTINGS_KEY = "inkslim.preferences.v1";
@@ -946,6 +964,80 @@ function conversionAction(item,label,url) {
   link.href = url;
   item.querySelector(".job-actions").appendChild(link);
 }
+function showQualityReport(url) {
+  const panel = $("report-panel");
+  panel.replaceChildren();
+  panel.hidden = false;
+  const heading = document.createElement("h2");
+  heading.textContent = "Conversion quality report";
+  const loading = document.createElement("p");
+  loading.className = "meta";
+  loading.textContent = "Loading report...";
+  panel.append(heading,loading);
+  panel.scrollIntoView({behavior:"smooth",block:"start"});
+  fetch(url).then(response => {
+    if (!response.ok) throw new Error("Could not load quality report.");
+    return response.json();
+  }).then(report => {
+    panel.replaceChildren(heading);
+    const job = report.job || {}, output = report.output || {};
+    const summary = report.summary || {}, quality = report.content_quality || {};
+    const decisions = summary.decisions || {}, sources = summary.result_sources || {};
+    const title = document.createElement("p");
+    title.className = "meta";
+    title.textContent = (job.input_name || "PDF conversion") + " · " +
+      (job.total_pages || summary.total_pages || 0) + " pages";
+    panel.appendChild(title);
+    const stats = document.createElement("div");
+    stats.className = "report-stats";
+    const values = [
+      [(summary.pages_with_results || 0) + "/" + (summary.total_pages || 0),"Pages processed"],
+      [Number(output.word_count || 0).toLocaleString(),"Words extracted"],
+      [decisions.use_native || 0,"Native text pages"],
+      [decisions.ocr_required || 0,"OCR pages"],
+      [output.chapter_count || 0,"Chapters"],
+      [output.paragraph_count || 0,"Paragraphs"]
+    ];
+    for (const [value,label] of values) {
+      const card = document.createElement("div"), strong = document.createElement("strong");
+      const caption = document.createElement("span");
+      card.className = "report-stat"; strong.textContent = value; caption.textContent = label;
+      card.append(strong,caption); stats.appendChild(card);
+    }
+    panel.appendChild(stats);
+    const coverage = Number(quality.text_page_coverage || 0);
+    const coverageTitle = document.createElement("h3");
+    coverageTitle.textContent = "Text coverage";
+    const coverageText = document.createElement("p");
+    coverageText.textContent = Math.round(coverage * 100) + "% · " +
+      (quality.pages_with_text || 0) + " pages with text · " +
+      (quality.pages_without_text || 0) + " without text";
+    const bar = document.createElement("div"), fill = document.createElement("span");
+    bar.className = "report-bar"; fill.style.width = Math.max(0,Math.min(100,coverage * 100)) + "%";
+    bar.appendChild(fill); panel.append(coverageTitle,coverageText,bar);
+    const diagnostics = document.createElement("p");
+    diagnostics.className = "meta";
+    const confidence = summary.mean_ocr_confidence;
+    diagnostics.textContent = "OCR confidence: " +
+      (confidence == null ? "n/a" : Number(confidence).toFixed(2) + "%") +
+      " · Native: " + (sources.native || 0) + " · Tesseract: " + (sources.tesseract || 0);
+    panel.appendChild(diagnostics);
+    const warningTitle = document.createElement("h3");
+    warningTitle.textContent = "Content warnings";
+    const warnings = document.createElement("p");
+    warnings.textContent = (quality.warnings || []).length ? quality.warnings.join(", ") : "No content warnings.";
+    panel.append(warningTitle,warnings);
+    const outputInfo = document.createElement("p");
+    outputInfo.className = "meta";
+    outputInfo.textContent = "EPUB size: " + fmt(output.epub_bytes || 0) +
+      " · Source PDF: " + fmt(output.source_pdf_bytes || 0);
+    panel.appendChild(outputInfo);
+    const actions = document.createElement("div"), print = document.createElement("button");
+    actions.className = "report-actions"; print.type = "button";
+    print.textContent = "Print / Save as PDF"; print.addEventListener("click",() => window.print());
+    actions.appendChild(print); panel.appendChild(actions);
+  }).catch(error => { loading.textContent = error.message; loading.className = "meta err"; });
+}
 function renderConversionJob(item,job) {
   const progress = item.querySelector("progress");
   const actions = item.querySelector(".job-actions");
@@ -967,7 +1059,12 @@ function renderConversionJob(item,job) {
   if (status === "completed") {
     progress.value = progress.max;
     conversionAction(item,"Download EPUB",job.links.download);
-    conversionAction(item,"Quality report",job.links.report);
+    const reportButton = document.createElement("button");
+    reportButton.type = "button"; reportButton.className = "job-button";
+    reportButton.textContent = "View report";
+    reportButton.addEventListener("click",() => showQualityReport(job.links.report));
+    actions.appendChild(reportButton);
+    conversionAction(item,"JSON report",job.links.report);
   } else if (status === "failed") {
     conversionMeta(item,(job.error?.message || "Conversion failed.") +
       (job.error?.code ? " (" + job.error.code + ")" : ""),true);
@@ -1029,26 +1126,17 @@ async function submitConversion(file) {
     item.querySelector("progress").remove();
   }
 }
-function addConversionFiles(files) {
-  for (const file of files) {
-    if (!file.name.toLowerCase().endsWith(".pdf")) continue;
-    submitConversion(file);
-  }
+function updateProcessingAction() {
+  const convert = processingAction.value === "convert";
+  conversionOptions.hidden = !convert;
+  $("epub-settings").hidden = convert;
+  $("pdf-settings").hidden = convert;
+  actionHint.textContent = convert
+    ? "PDF files are converted to reflowable EPUBs. EPUB uploads are not accepted in this mode."
+    : "PDF and EPUB files are optimized while preserving their original format.";
 }
-conversionDrop.addEventListener("click",() => conversionInput.click());
-conversionDrop.addEventListener("keydown",event => {
-  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); conversionInput.click(); }
-});
-for (const eventName of ["dragenter","dragover"]) conversionDrop.addEventListener(eventName,event => {
-  event.preventDefault(); conversionDrop.classList.add("over");
-});
-for (const eventName of ["dragleave","drop"]) conversionDrop.addEventListener(eventName,event => {
-  event.preventDefault(); conversionDrop.classList.remove("over");
-});
-conversionDrop.addEventListener("drop",event => addConversionFiles(event.dataTransfer.files));
-conversionInput.addEventListener("change",() => {
-  addConversionFiles(conversionInput.files); conversionInput.value = "";
-});
+processingAction.addEventListener("change",updateProcessingAction);
+updateProcessingAction();
 for (const job of savedConversionJobs()) {
   const item = conversionItem(job.id,job.name || "Previous PDF conversion");
   refreshConversion(item);
@@ -1104,12 +1192,23 @@ function addFiles(files) {
   for (const file of files) {
     const name = file.name.toLowerCase();
     if (!name.endsWith(".epub") && !name.endsWith(".pdf")) continue;
+    if (processingAction.value === "convert") {
+      if (name.endsWith(".pdf")) submitConversion(file);
+      else {
+        const item = document.createElement("li");
+        item.dataset.state = "error";
+        item.innerHTML = '<div class="name"></div><div class="meta"></div>';
+        item.querySelector(".name").textContent = file.name;
+        list.appendChild(item);
+        setMeta(item,"PDF-to-EPUB mode only accepts PDF files.",true,"error");
+      }
+      continue;
+    }
     const item = document.createElement("li");
     item.dataset.state = "queued";
     item.innerHTML = '<div class="name"></div><div class="meta"></div>';
     item.querySelector(".name").textContent = file.name;
     list.appendChild(item);
-    // Capture settings when enqueued so mixed batches use the correct profile.
     queue.push({file,li:item,settings:settingsForFile(file)});
     setMeta(item,"Queued... (" + fmt(file.size) + ")",false,"queued");
   }

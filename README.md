@@ -297,7 +297,7 @@ The current implementation foundation includes:
 
 The worker now runs the complete backend conversion path: PDF analysis, native-text extraction and sampled OCR validation, Tesseract OCR where required, line and paragraph reconstruction, conservative dehyphenation, repeated page-furniture removal, chapter/heading detection, document-model assembly and EPUB 3 generation. It stores resumable checkpoints and marks a job complete only after the EPUB has passed runtime structural validation and a JSON quality report has been written. The report contains page diagnostics and aggregate quality metrics, not recognized book text.
 
-The conversion workflow is available in its own section of the web interface. Select one or more PDFs, choose the OCR language and monitor each background job. Completed jobs provide both an EPUB download and a quality report. The existing `/shrink` endpoint remains separate and unchanged.
+The conversion workflow is available in its own section of the web interface. Select one or more PDFs, choose the OCR language and monitor each background job. Completed jobs provide both an EPUB download and a quality report. The existing `/shrink` endpoint remains separate and unchanged. The interface uses one shared upload area: choose **Make smaller** for PDF/EPUB optimization or **Convert PDF to EPUB** for reflowable conversion. Completed conversion jobs offer a readable in-page quality report with a print / Save as PDF action; the original JSON report remains available for diagnostics.
 
 ### Conversion quality report
 
