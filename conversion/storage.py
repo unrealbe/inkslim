@@ -803,6 +803,56 @@ class JobStore:
             ).fetchall()
         return [Job.from_row(row) for row in rows]
 
+    def delete_job(self, job_id: str) -> bool:
+        """Permanently remove one terminal job and its complete workspace."""
+        normalized_id = str(uuid.UUID(job_id))
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._select_job(connection, normalized_id)
+            if row is None:
+                connection.rollback()
+                return False
+            status = JobStatus(row["status"])
+            if status not in {
+                JobStatus.COMPLETED,
+                JobStatus.FAILED,
+                JobStatus.CANCELLED,
+            }:
+                connection.rollback()
+                raise InvalidJobStateError(
+                    "Only completed, failed or cancelled jobs can be deleted"
+                )
+            directory = self._safe_job_directory(normalized_id)
+            if directory.exists():
+                shutil.rmtree(directory)
+            connection.execute("DELETE FROM jobs WHERE id = ?", (normalized_id,))
+            connection.commit()
+        return True
+
+    def clear_terminal_jobs(self) -> int:
+        """Permanently remove terminal jobs while retaining queued and active jobs."""
+        terminal = (
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        )
+        removed = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT id FROM jobs WHERE status IN (?, ?, ?)", terminal
+            ).fetchall()
+            for row in rows:
+                directory = self._safe_job_directory(row["id"])
+                if directory.exists():
+                    shutil.rmtree(directory)
+                connection.execute("DELETE FROM jobs WHERE id = ?", (row["id"],))
+                removed += 1
+            connection.commit()
+        if removed:
+            logger.info("Manually removed %d terminal conversion job(s)", removed)
+        return removed
+
     def claim_next_job(self, worker_id: str) -> Job | None:
         if not worker_id or len(worker_id) > 128:
             raise ValueError("worker_id must be a non-empty identifier of at most 128 characters")
