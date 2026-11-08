@@ -45,13 +45,14 @@ class JobWorkspace:
         self.pages_dir = root / "pages"
         self.lines_dir = root / "lines"
         self.paragraphs_dir = root / "paragraphs"
+        self.dehyphenated_dir = root / "dehyphenated"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -247,6 +248,55 @@ class JobWorkspace:
             return None
         except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
             self._quarantine_checkpoint(path, page_number, "paragraphs", "corrupt", exc)
+            return None
+
+
+    def page_dehyphenated_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.dehyphenated_dir / f"{page_number:06d}.json"
+
+    def save_page_dehyphenated(
+        self, page_number: int, paragraphs: list[dict[str, Any]], *, removed_soft_hyphens: int
+    ) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        if removed_soft_hyphens < 0:
+            raise ValueError("removed_soft_hyphens cannot be negative")
+        path = self.page_dehyphenated_path(page_number)
+        self._atomic_json(
+            path,
+            {
+                "schema_version": 1,
+                "page_number": page_number,
+                "removed_soft_hyphens": removed_soft_hyphens,
+                "paragraphs": paragraphs,
+            },
+        )
+        return path
+
+    def load_page_dehyphenated(
+        self, page_number: int
+    ) -> tuple[list[dict[str, Any]], int] | None:
+        path = self.page_dehyphenated_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+                raise ValueError("Dehyphenation checkpoint metadata does not match its page")
+            paragraphs = value.get("paragraphs")
+            removed = value.get("removed_soft_hyphens")
+            if not isinstance(paragraphs, list) or any(
+                not isinstance(paragraph, dict) for paragraph in paragraphs
+            ):
+                raise ValueError("Dehyphenation checkpoint has an invalid paragraphs collection")
+            if type(removed) is not int or removed < 0:
+                raise ValueError("Dehyphenation checkpoint has an invalid removal count")
+            return paragraphs, removed
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "dehyphenated", "corrupt", exc)
             return None
 
     def rendered_page_path(self, page_number: int, suffix: str = ".png") -> Path:

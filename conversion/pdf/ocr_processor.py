@@ -14,6 +14,7 @@ from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
 from ..quality_report import build_quality_report
 from ..lines import ReconstructedLine, reconstruct_lines
 from ..paragraphs import reconstruct_paragraphs
+from ..dehyphenation import dehyphenate_paragraphs
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -143,11 +144,22 @@ class PdfOcrJobProcessor:
                                 "LINE_CHECKPOINT_INVALID",
                                 f"Text line data for page {page_number} is invalid.",
                             ) from exc
-                    paragraphs = reconstruct_paragraphs(lines)
-                    workspace.save_page_paragraphs(
-                        page_number,
-                        [paragraph.to_dict() for paragraph in paragraphs],
-                    )
+                    raw_paragraphs = [
+                        paragraph.to_dict() for paragraph in reconstruct_paragraphs(lines)
+                    ]
+                    workspace.save_page_paragraphs(page_number, raw_paragraphs)
+
+                    # Keep the original paragraph checkpoint immutable. The
+                    # dehyphenated representation is a separate resumable stage.
+                    if workspace.load_page_dehyphenated(page_number) is None:
+                        processed, removed_soft_hyphens = dehyphenate_paragraphs(
+                            raw_paragraphs
+                        )
+                        workspace.save_page_dehyphenated(
+                            page_number,
+                            processed,
+                            removed_soft_hyphens=removed_soft_hyphens,
+                        )
                     store.update_progress(
                         job.id,
                         status=JobStatus.OCR,
