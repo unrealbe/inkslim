@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from conversion.document import DocumentChapter, DocumentModel, DocumentParagraph
+from conversion.epub.builder import EpubMetadata
+
 from conversion.models import PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
 from conversion.pdf.models import PageAnalysis, PageDecision
 from conversion.quality_report import build_quality_report
@@ -69,7 +72,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["job"]["total_pages"] == 3
     assert report["job"]["language_selection"] == "nld+eng"
@@ -113,3 +116,80 @@ def test_quality_report_rejects_naive_generated_timestamp(tmp_path):
         build_quality_report(
             job, workspace, total_pages=1, generated_at=datetime(2026, 11, 7)
         )
+
+
+def test_quality_report_includes_epub_statistics_and_content_warnings(tmp_path):
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    output = tmp_path / "book.epub"
+    output.write_bytes(b"epub-output")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name, language="nld")
+    workspace = store.workspace(job.id)
+
+    workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
+    workspace.save_page_result(_result(1, TextSource.NATIVE))
+    workspace.save_page_cleaned_paragraphs(1, [
+        {"paragraph_index": 0, "text": "Dit is een eerste alinea."},
+        {"paragraph_index": 1, "text": "Een tweede alinea."},
+    ])
+    workspace.save_page_analysis(_analysis(2, PageDecision.OCR_REQUIRED))
+    workspace.save_page_result(_result(2, TextSource.TESSERACT))
+    workspace.save_page_cleaned_paragraphs(2, [])
+    workspace.save_page_analysis(_analysis(3, PageDecision.EMPTY))
+    workspace.save_page_cleaned_paragraphs(3, [])
+    workspace.save_document_model(DocumentModel(
+        metadata=EpubMetadata(title="book", language="nl"),
+        chapters=[DocumentChapter("Hoofdstuk 1", [
+            DocumentParagraph("Dit is een eerste alinea."),
+            DocumentParagraph("Een tweede alinea.", kind="h2"),
+        ])],
+    ))
+
+    path = build_quality_report(
+        job, workspace, total_pages=3, output_path=output,
+        generated_at=datetime(2026, 11, 7, tzinfo=UTC),
+    )
+    report = json.loads(path.read_text(encoding="utf-8"))
+
+    assert report["output"] == {
+        "format": "epub",
+        "source_pdf_bytes": source.stat().st_size,
+        "epub_bytes": output.stat().st_size,
+        "chapter_count": 1,
+        "paragraph_count": 2,
+        "heading_count": 1,
+        "word_count": 8,
+    }
+    assert report["content_quality"]["pages_with_text"] == 1
+    assert report["content_quality"]["pages_without_text"] == 1
+    assert report["content_quality"]["empty_source_pages"] == 1
+    assert report["content_quality"]["eligible_source_pages"] == 2
+    assert report["content_quality"]["text_page_coverage"] == 0.5
+    assert {item["code"] for item in report["content_quality"]["warnings"]} == {
+        "OCR_PAGES_WITHOUT_TEXT", "PAGES_WITHOUT_TEXT"
+    }
+    assert report["summary"]["warning_count"] == 3
+    assert report["privacy"]["recognized_text_included"] is False
+
+
+def test_quality_report_warns_when_no_body_text_was_reconstructed(tmp_path):
+    source = tmp_path / "empty.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.EMPTY))
+    workspace.save_page_cleaned_paragraphs(1, [])
+    workspace.save_document_model(DocumentModel(
+        metadata=EpubMetadata(title="empty", language="en"),
+        chapters=[DocumentChapter("empty", [
+            DocumentParagraph("[Empty document]")
+        ])],
+    ))
+
+    report = json.loads(build_quality_report(
+        job, workspace, total_pages=1
+    ).read_text(encoding="utf-8"))
+    assert report["output"]["word_count"] == 0
+    assert report["content_quality"]["warnings"][0]["code"] == "NO_BODY_TEXT_EXTRACTED"
