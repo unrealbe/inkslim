@@ -6,11 +6,11 @@ from conversion.epub import Block, Chapter, EpubMetadata, build_epub
 from conversion.epub.validation import validate_epub
 
 
-def _build(path: Path, *, text="Een geldige alinea.") -> Path:
+def _build(path: Path, *, text="Een geldige alinea.", chapter_title="Hoofdstuk 1") -> Path:
     return build_epub(
         path,
         EpubMetadata(title="Validatieboek", language="nl"),
-        [Chapter("Hoofdstuk 1", [Block("p", text)])],
+        [Chapter(chapter_title, [Block("p", text)])],
         modified=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
@@ -29,6 +29,12 @@ def _rewrite(source: Path, destination: Path, *, replacements=None, omit=(), app
 
 def test_valid_generated_epub_passes_runtime_validation(tmp_path):
     assert validate_epub(_build(tmp_path / "valid.epub")) == ()
+
+
+def test_accepts_chapter_headings_without_body_paragraphs(tmp_path):
+    assert validate_epub(_build(
+        tmp_path / "headings-only.epub", text="   ", chapter_title="CHAPTER 1"
+    )) == ()
 
 
 def test_rejects_missing_manifest_resource(tmp_path):
@@ -69,8 +75,10 @@ def test_rejects_malformed_spine_xhtml(tmp_path):
 
 
 def test_rejects_book_without_readable_body_text(tmp_path):
-    errors = validate_epub(_build(tmp_path / "empty-book.epub", text="   "))
-    assert errors and "no readable" in errors[0]
+    errors = validate_epub(_build(
+        tmp_path / "empty-book.epub", text="   ", chapter_title="   "
+    ))
+    assert errors and "no readable text" in errors[0]
 
 
 def test_rejects_duplicate_and_unsafe_zip_entries(tmp_path):

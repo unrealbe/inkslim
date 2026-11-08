@@ -14,6 +14,7 @@ _CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 _OPF_NS = "http://www.idpf.org/2007/opf"
 _XHTML_NS = "http://www.w3.org/1999/xhtml"
 _REQUIRED_XHTML = "application/xhtml+xml"
+_READABLE_BLOCKS = {"p", "h1", "h2", "h3", "blockquote", "li"}
 
 
 def _tag(namespace: str, name: str) -> str:
@@ -172,12 +173,12 @@ def validate_epub(path: Path | str) -> tuple[str, ...]:
                 if body is None:
                     raise ValueError(f"Spine XHTML has no body: {chapter_path}")
                 for node in body.iter():
-                    if node.tag in {_tag(_XHTML_NS, "p"), _tag(_XHTML_NS, "blockquote"), _tag(_XHTML_NS, "li")} and "".join(node.itertext()).strip():
+                    if node.tag in {_tag(_XHTML_NS, name) for name in _READABLE_BLOCKS} and "".join(node.itertext()).strip():
                         has_readable_text = True
                         break
                 _check_local_references(chapter, chapter_path, names, archive)
             if not has_readable_text:
-                raise ValueError("The EPUB spine contains no readable paragraph or list text")
+                raise ValueError("The EPUB spine contains no readable text")
             _check_local_references(nav, nav_path, names, archive)
             for document_path, document in parsed.items():
                 if document_path.lower().endswith((".xhtml", ".html", ".ncx")) and document_path != nav_path and document_path not in spine_paths:
