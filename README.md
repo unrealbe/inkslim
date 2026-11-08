@@ -269,9 +269,10 @@ The current implementation foundation includes:
 - Conservative per-page paragraph reconstruction shared by native PDF text and OCR, with durable paragraph checkpoints.
 - A separate dehyphenation checkpoint stage that removes explicit Unicode soft hyphens while preserving ambiguous visible hyphens and compound words.
 - A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
+- Document-level detection of repeated headers, footers and consistently positioned page numbers, with separate cleaned paragraph checkpoints.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics and conservative soft-hyphen cleanup. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so the selection is currently available to the internal job-creation layer, not yet as a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
+The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics, conservative soft-hyphen cleanup and document-level page-furniture removal. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so the selection is currently available to the internal job-creation layer, not yet as a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
 
 The repository also contains a dependency-free EPUB 3 writer. That writer is tested independently, but it is not yet connected to the PDF conversion job.
 
@@ -286,20 +287,21 @@ The repository also contains a dependency-free EPUB 3 writer. That writer is tes
 - Sampled OCR validation of native PDF text.
 - Durable per-page analysis, text, line and paragraph checkpoints.
 - Per-page and aggregate JSON quality report.
-- Initial line and paragraph reconstruction using page geometry.
+- Line reconstruction with conservative two-column reading order.
+- Per-page paragraph reconstruction using page geometry.
+- Per-job language selection and dominant-language diagnostics.
+- Advisory visible line-end hyphenation detection.
+- Document-level repeated header/footer and page-number detection with cleaned paragraph checkpoints.
 - Conservative dehyphenation of explicit Unicode soft hyphens. Visible hyphens are deliberately preserved because they may be genuine compounds or punctuation.
 
 **Next implementation milestones**
 
-1. Improve reading order, including multi-column pages and column boundaries.
-2. Use detected page language for language-aware validation so safe visible-hyphen candidates can eventually be resolved; ambiguous cases must remain unchanged.
-3. Detect and remove repeated headers, footers and page numbers.
-4. Detect headings and chapter boundaries.
-5. Connect processed paragraphs to the existing EPUB 3 writer and assemble a complete book.
-6. Validate generated conversion output with EPUBCheck and add conversion-level quality checks.
-7. Expose conversion jobs through an API, then add upload, progress and download support to the web UI.
-8. Implement job cleanup and storage quotas. JOB_RETENTION_HOURS is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
-9. Add OCR benchmarking and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
+1. Detect headings and chapter boundaries.
+2. Connect cleaned paragraphs to the existing EPUB 3 writer and assemble a complete book.
+3. Validate generated conversion output with EPUBCheck and add conversion-level quality checks.
+4. Expose conversion jobs through an API, then add upload, progress and download support to the web UI.
+5. Implement job cleanup and storage quotas. JOB_RETENTION_HOURS is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
+6. Add OCR benchmarking and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 
 The milestones are intentionally ordered: text order and structure must be reliable before we generate and expose downloadable EPUB files.
 
