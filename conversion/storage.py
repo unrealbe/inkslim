@@ -37,6 +37,10 @@ class InvalidJobStateError(RuntimeError):
     pass
 
 
+class StorageQuotaExceededError(RuntimeError):
+    pass
+
+
 class JobWorkspace:
     """Persistent files for one job; page results are atomic JSON checkpoints."""
 
@@ -541,9 +545,12 @@ class JobWorkspace:
 class JobStore:
     """SQLite-backed queue. Keep its database and job files on local NAS storage."""
 
-    def __init__(self, database_path: Path, jobs_dir: Path):
+    def __init__(self, database_path: Path, jobs_dir: Path, *, max_storage_bytes: int = 5 * 1024**3):
         self.database_path = Path(database_path)
         self.jobs_dir = Path(jobs_dir)
+        if max_storage_bytes < 1:
+            raise ValueError('max_storage_bytes must be positive')
+        self.max_storage_bytes = max_storage_bytes
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
@@ -666,6 +673,51 @@ class JobStore:
             raise ValueError("Invalid job ID") from exc
         return JobWorkspace(self.jobs_dir / normalized_id)
 
+    def _safe_job_directory(self, job_id: str) -> Path:
+        normalized = str(uuid.UUID(job_id))
+        root = self.jobs_dir.resolve()
+        candidate = self.jobs_dir / normalized
+        if candidate.is_symlink() or candidate.parent.resolve() != root:
+            raise ValueError("Unsafe job workspace path")
+        return candidate
+
+    def storage_usage_bytes(self) -> int:
+        total = 0
+        for child in self.jobs_dir.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                continue
+            for path in child.rglob("*"):
+                if path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def cleanup_expired_jobs(self, retention_hours: int = 24) -> int:
+        if retention_hours < 1:
+            raise ValueError("retention_hours must be at least 1")
+        cutoff = (datetime.now(UTC) - timedelta(hours=retention_hours)).isoformat(timespec="seconds")
+        removed = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT id FROM jobs WHERE status IN (?, ?, ?) AND completed_at IS NOT NULL AND completed_at <= ?",
+                (JobStatus.COMPLETED.value, JobStatus.FAILED.value,
+                 JobStatus.CANCELLED.value, cutoff),
+            ).fetchall()
+            for row in rows:
+                directory = self._safe_job_directory(row["id"])
+                if directory.exists():
+                    shutil.rmtree(directory)
+                connection.execute("DELETE FROM jobs WHERE id = ?", (row["id"],))
+                removed += 1
+            connection.commit()
+        if removed:
+            logger.info("Removed %d expired conversion job(s)", removed)
+        return removed
+
     def create_job(
         self,
         source_path: Path,
@@ -702,6 +754,10 @@ class JobStore:
             )
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if self.storage_usage_bytes() > self.max_storage_bytes:
+                    raise StorageQuotaExceededError(
+                        "Conversion storage is full. Remove older jobs or increase MAX_CONVERSION_STORAGE_MB."
+                    )
                 connection.execute(
                     """INSERT INTO jobs
                        (id, status, input_name, input_path, language, created_at,

@@ -6,6 +6,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -114,9 +115,17 @@ class ConversionWorker:
         """Recover interrupted jobs once, then poll until the stop event is set."""
         stop_event = stop_event or threading.Event()
         recovered = self.store.recover_interrupted_jobs()
+        self.store.cleanup_expired_jobs()
         if recovered:
             logger.info("Requeued %d interrupted conversion job(s)", recovered)
 
+        last_cleanup = time.monotonic()
         while not stop_event.is_set():
+            if time.monotonic() - last_cleanup >= 60:
+                try:
+                    self.store.cleanup_expired_jobs()
+                except Exception:
+                    logger.exception("Could not clean up expired conversion jobs")
+                last_cleanup = time.monotonic()
             if not self.run_once():
                 stop_event.wait(self.poll_seconds)

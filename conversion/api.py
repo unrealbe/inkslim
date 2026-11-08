@@ -16,7 +16,7 @@ from .epub.validation import validate_epub
 from .language import normalize_language_selection
 from .models import Job, JobStatus
 from .pdf.analyzer import PdfAnalysisError, open_pdf_document
-from .storage import InvalidJobStateError, JobNotFoundError, JobStore
+from .storage import InvalidJobStateError, JobNotFoundError, JobStore, StorageQuotaExceededError
 
 logger = logging.getLogger(__name__)
 conversion_api = Blueprint("conversion_api", __name__, url_prefix="/api/conversions")
@@ -27,7 +27,7 @@ def _store() -> JobStore:
     if store is None:
         config = ConversionConfig.from_env()
         config.data_dir.mkdir(parents=True, exist_ok=True)
-        store = JobStore(config.database_path, config.jobs_dir)
+        store = JobStore(config.database_path, config.jobs_dir, max_storage_bytes=config.max_conversion_storage_mb * 1024 * 1024)
         current_app.extensions["conversion_store"] = store
     return store
 
@@ -119,7 +119,12 @@ def create_conversion():
             return jsonify(error=exc.public_message, code=exc.code), 422
 
         try:
-            job = _store().create_job(source, Path(upload.filename).name, language)
+            config = ConversionConfig.from_env()
+            store = _store()
+            store.cleanup_expired_jobs(config.job_retention_hours)
+            job = store.create_job(source, Path(upload.filename).name, language)
+        except StorageQuotaExceededError as exc:
+            return jsonify(error=str(exc), code="STORAGE_QUOTA_EXCEEDED"), 507
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
         except Exception:

@@ -14,6 +14,7 @@ class ConversionConfig:
     ocr_workers: int = 1
     ocr_timeout_page: int = 120
     job_retention_hours: int = 24
+    max_conversion_storage_mb: int = 5120
     queue_poll_seconds: float = 2.0
     pdf_render_dpi: int = 300
     min_render_dpi: int = 120
@@ -37,6 +38,7 @@ class ConversionConfig:
             ocr_workers=_read_int("OCR_WORKERS", 1, minimum=1),
             ocr_timeout_page=_read_int("OCR_TIMEOUT_PAGE", 120, minimum=1),
             job_retention_hours=_read_int("JOB_RETENTION_HOURS", 24, minimum=1),
+            max_conversion_storage_mb=_read_int("MAX_CONVERSION_STORAGE_MB", 5120, minimum=1),
             queue_poll_seconds=_read_float("QUEUE_POLL_SECONDS", 2.0, minimum=0.1),
             pdf_render_dpi=_read_int("PDF_RENDER_DPI", 300, minimum=72),
             min_render_dpi=_read_int("MIN_RENDER_DPI", 120, minimum=72),
