@@ -49,7 +49,7 @@ def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
         return None
     clean = " ".join(text.split()).strip()
     normalized = _normalize(clean)
-    if not 3 <= len(clean) <= 100 or _TERMINAL.search(clean) or box[1] > 0.82:
+    if not 3 <= len(clean) <= 100 or _TERMINAL.search(clean) or box[1] > 0.82 or box[3] < 0.02:
         return None
 
     if _CHAPTER.fullmatch(normalized):
@@ -78,7 +78,7 @@ def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
             )
 
     paragraph_index = paragraph.get("paragraph_index")
-    if type(paragraph_index) is not int or paragraph_index < 1:
+    if type(paragraph_index) is not int or paragraph_index < 0:
         return None
     return {
         "paragraph_index": paragraph_index,

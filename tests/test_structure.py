@@ -62,3 +62,16 @@ def test_preserves_source_paragraphs_and_rejects_invalid_document_size():
     assert source == before
     with pytest.raises(ValueError, match="total_pages"):
         detect_document_structure({}, total_pages=0)
+
+
+def test_accepts_zero_indexed_paragraph():
+    pages = {1: [paragraph(0, "CHAPTER 1")]}
+    analysis, annotations = detect_document_structure(pages, total_pages=1)
+    assert analysis["chapter_count"] == 1
+    assert annotations[1][0]["paragraph_index"] == 0
+
+
+def test_rejects_top_edge_or_extreme_margin_text():
+    pages = {1: [paragraph(1, "CHAPTER 1", bbox=(0.1, 0.0, 0.9, 0.015))]}
+    analysis, annotations = detect_document_structure(pages, total_pages=1)
+    assert analysis["chapter_count"] == 0
