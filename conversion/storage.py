@@ -44,13 +44,14 @@ class JobWorkspace:
         self.input_dir = root / "input"
         self.pages_dir = root / "pages"
         self.lines_dir = root / "lines"
+        self.paragraphs_dir = root / "paragraphs"
         self.analysis_dir = root / "analysis"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -206,6 +207,47 @@ class JobWorkspace:
             self.load_page_result(page_number) is not None
             for page_number in range(1, total_pages + 1)
         )
+
+
+    def page_paragraphs_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.paragraphs_dir / f"{page_number:06d}.json"
+
+    def save_page_paragraphs(
+        self, page_number: int, paragraphs: list[dict[str, Any]]
+    ) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        path = self.page_paragraphs_path(page_number)
+        self._atomic_json(
+            path,
+            {
+                "schema_version": 1,
+                "page_number": page_number,
+                "paragraphs": paragraphs,
+            },
+        )
+        return path
+
+    def load_page_paragraphs(self, page_number: int) -> list[dict[str, Any]] | None:
+        path = self.page_paragraphs_path(page_number)
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+                raise ValueError("Paragraph checkpoint metadata does not match its page")
+            paragraphs = value.get("paragraphs")
+            if not isinstance(paragraphs, list) or any(
+                not isinstance(paragraph, dict) for paragraph in paragraphs
+            ):
+                raise ValueError("Paragraph checkpoint has an invalid paragraphs collection")
+            return paragraphs
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, page_number, "paragraphs", "corrupt", exc)
+            return None
 
     def rendered_page_path(self, page_number: int, suffix: str = ".png") -> Path:
         if page_number < 1:

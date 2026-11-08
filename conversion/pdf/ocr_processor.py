@@ -12,7 +12,8 @@ from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
 from ..quality_report import build_quality_report
-from ..lines import reconstruct_lines
+from ..lines import ReconstructedLine, reconstruct_lines
+from ..paragraphs import reconstruct_paragraphs
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -97,8 +98,65 @@ class PdfOcrJobProcessor:
                         total_pages=total_pages,
                         message=f"OCR processed page {page_number} of {total_pages}",
                     )
+                # Paragraphs are the first shared post-processing representation for
+                # native and OCR text. EMPTY pages receive an explicit empty checkpoint.
+                for page_number in range(1, total_pages + 1):
+                    if store.is_cancel_requested(job.id):
+                        raise JobCancelled(
+                            f"Cancellation requested before paragraph page {page_number}"
+                        )
+                    analysis = workspace.load_page_analysis(page_number)
+                    if analysis is None:
+                        raise JobProcessingError(
+                            "ANALYSIS_CHECKPOINT_MISSING",
+                            "PDF analysis data is missing; the job must be analyzed again.",
+                        )
+                    if analysis.decision.value == "empty":
+                        lines = []
+                    else:
+                        raw_lines = workspace.load_page_lines(page_number)
+                        if raw_lines is None:
+                            page_result = workspace.load_page_result(page_number)
+                            if page_result is None:
+                                raise JobProcessingError(
+                                    "TEXT_CHECKPOINT_MISSING",
+                                    f"Text data for page {page_number} is missing.",
+                                )
+                            reconstructed = reconstruct_lines(page_result)
+                            workspace.save_page_lines(
+                                page_number,
+                                [line.to_dict() for line in reconstructed],
+                            )
+                            raw_lines = [line.to_dict() for line in reconstructed]
+                        try:
+                            lines = [ReconstructedLine(
+                                line_index=int(item["line_index"]),
+                                text=str(item["text"]),
+                                bbox=tuple(item["bbox"]),
+                                confidence=item.get("confidence"),
+                                source=str(item["source"]),
+                                source_line_number=item.get("source_line_number"),
+                                source_paragraph_number=item.get("source_paragraph_number"),
+                            ) for item in raw_lines]
+                        except (KeyError, TypeError, ValueError) as exc:
+                            raise JobProcessingError(
+                                "LINE_CHECKPOINT_INVALID",
+                                f"Text line data for page {page_number} is invalid.",
+                            ) from exc
+                    paragraphs = reconstruct_paragraphs(lines)
+                    workspace.save_page_paragraphs(
+                        page_number,
+                        [paragraph.to_dict() for paragraph in paragraphs],
+                    )
+                    store.update_progress(
+                        job.id,
+                        status=JobStatus.OCR,
+                        current_page=page_number,
+                        total_pages=total_pages,
+                        message=f"Reconstructed paragraphs on page {page_number} of {total_pages}",
+                    )
                 if store.is_cancel_requested(job.id):
-                    raise JobCancelled("Cancellation requested after OCR")
+                    raise JobCancelled("Cancellation requested after paragraph reconstruction")
             report_path = build_quality_report(job, workspace, total_pages=total_pages)
             return JobExecutionResult(
                 report_path=report_path,

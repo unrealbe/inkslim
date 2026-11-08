@@ -264,9 +264,10 @@ The current implementation foundation includes:
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
 - A JSON quality report with per-page decisions, OCR confidence, warnings and aggregate counts; recognized book text is deliberately excluded.
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
+- Conservative per-page paragraph reconstruction shared by native PDF text and OCR, with durable paragraph checkpoints.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: advanced reading-order and multi-column layout reconstruction, paragraph and heading detection, header/footer cleanup, dehyphenation, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
+The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: advanced reading-order and multi-column layout reconstruction, conservative dehyphenation, repeated header/footer cleanup, heading and chapter detection, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
 
 ### Persistent data
 
