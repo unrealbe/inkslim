@@ -262,6 +262,7 @@ The current implementation foundation includes:
 - Native PDF text extraction into the same durable `PageResult` and line-checkpoint format used by OCR pages.
 - PDFium page rendering with configurable DPI, pixel-count and dimension limits.
 - Tesseract OCR using TSV output, including word positions and confidence values.
+- Per-job language selection (`auto`, Dutch, English, Dutch + English, French or German), with per-page dominant-language estimates in the quality report.
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
 - A JSON quality report with per-page decisions, OCR confidence, warnings and aggregate counts; recognized book text is deliberately excluded.
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
@@ -270,7 +271,7 @@ The current implementation foundation includes:
 - A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics and conservative soft-hyphen cleanup. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so this option is currently exposed through the job-creation interface rather than a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
+The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics and conservative soft-hyphen cleanup. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so the selection is currently available to the internal job-creation layer, not yet as a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
 
 The repository also contains a dependency-free EPUB 3 writer. That writer is tested independently, but it is not yet connected to the PDF conversion job.
 
