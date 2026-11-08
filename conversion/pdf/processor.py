@@ -23,6 +23,7 @@ from .native_text import (
     extract_native_text,
 )
 from .renderer import PDFRenderLimits, RenderPlanError, build_render_plan, render_pdf_page
+from .images import extract_page_images
 
 logger = logging.getLogger(__name__)
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
@@ -151,6 +152,14 @@ class PdfAnalysisJobProcessor:
             [line.to_dict() for line in reconstruct_lines(result)],
         )
 
+    def _ensure_page_images(self, page, page_number, workspace):
+        existing = workspace.load_page_images(page_number)
+        if existing is not None:
+            return existing
+        extracted = extract_page_images(page, page_number, workspace)
+        workspace.save_page_images(extracted)
+        return extracted
+
     def __call__(
         self,
         job: Job,
@@ -182,16 +191,18 @@ class PdfAnalysisJobProcessor:
 
                     cached_analysis = workspace.load_page_analysis(page_number)
                     if cached_analysis is not None:
-                        if cached_analysis.decision is PageDecision.USE_NATIVE:
-                            page = document[page_index]
-                            try:
-                                self._ensure_native_result(
-                                    page, cached_analysis, workspace
-                                )
-                            finally:
-                                page.close()
-                            if cached_analysis.decision is not PageDecision.USE_NATIVE:
-                                workspace.save_page_analysis(cached_analysis)
+                        page = document[page_index]
+                        try:
+                            image_checkpoint = self._ensure_page_images(page, page_number, workspace)
+                            cached_analysis.warnings.extend(
+                                warning for warning in image_checkpoint.warnings
+                                if warning not in cached_analysis.warnings
+                            )
+                            if cached_analysis.decision is PageDecision.USE_NATIVE:
+                                self._ensure_native_result(page, cached_analysis, workspace)
+                        finally:
+                            page.close()
+                        workspace.save_page_analysis(cached_analysis)
                         continue
 
                     page = document[page_index]
@@ -213,6 +224,11 @@ class PdfAnalysisJobProcessor:
 
                         if analysis.decision is PageDecision.USE_NATIVE:
                             self._ensure_native_result(page, analysis, workspace)
+                        image_checkpoint = self._ensure_page_images(page, page_number, workspace)
+                        analysis.warnings.extend(
+                            warning for warning in image_checkpoint.warnings
+                            if warning not in analysis.warnings
+                        )
                     finally:
                         page.close()
 

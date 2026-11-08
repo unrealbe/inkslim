@@ -55,12 +55,14 @@ class JobWorkspace:
         self.cleaned_dir = root / "cleaned"
         self.structure_dir = root / "structure"
         self.analysis_dir = root / "analysis"
+        self.page_images_dir = root / "page_images"
+        self.images_dir = root / "images"
         self.rendered_dir = root / "rendered"
         self.output_dir = root / "output"
 
     def create(self) -> None:
         for directory in (
-            self.input_dir, self.analysis_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.cleaned_dir, self.structure_dir, self.rendered_dir, self.output_dir
+            self.input_dir, self.analysis_dir, self.page_images_dir, self.images_dir, self.pages_dir, self.lines_dir, self.paragraphs_dir, self.dehyphenated_dir, self.hyphenation_dir, self.cleaned_dir, self.structure_dir, self.rendered_dir, self.output_dir
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -91,6 +93,31 @@ class JobWorkspace:
             page_number,
             "analysis",
         )
+
+    def page_images_checkpoint_path(self, page_number: int) -> Path:
+        if page_number < 1:
+            raise ValueError("page_number must be at least 1")
+        return self.page_images_dir / f"{page_number:06d}.json"
+
+    def save_page_images(self, page_images: Any) -> Path:
+        self.page_images_dir.mkdir(parents=True, exist_ok=True)
+        path = self.page_images_checkpoint_path(page_images.page_number)
+        self._atomic_json(path, page_images.to_dict())
+        return path
+
+    def load_page_images(self, page_number: int) -> Any | None:
+        from .pdf.images import PageImages
+        return self._load_checkpoint(
+            self.page_images_checkpoint_path(page_number),
+            PageImages.from_dict,
+            page_number,
+            "page-images",
+        )
+
+    def page_image_asset_prefix(self, page_number: int, image_index: int) -> Path:
+        if page_number < 1 or image_index < 1:
+            raise ValueError("page_number and image_index must be positive")
+        return self.images_dir / f"{page_number:06d}-{image_index:04d}"
 
     def first_missing_analysis(self, total_pages: int) -> int:
         if total_pages < 0:

@@ -774,6 +774,12 @@ def test_pdf_job_analyzes_all_pages_and_enters_ready_for_ocr(store, tmp_path):
     assert workspace.load_page_lines(1)
     assert workspace.load_page_result(2) is None
     assert workspace.load_page_result(3) is None
+    page2_images = workspace.load_page_images(2)
+    assert page2_images is not None
+    assert len(page2_images.images) == 1
+    assert page2_images.images[0].media_type in {"image/jpeg", "image/png"}
+    assert (workspace.root / page2_images.images[0].source_path).is_file()
+    assert page2_images.images[0].coverage > 0
 
 
 def test_pdf_job_updates_sqlite_progress_after_each_page(store, tmp_path, monkeypatch):
