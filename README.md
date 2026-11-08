@@ -264,7 +264,7 @@ The current implementation foundation includes:
 - Tesseract OCR using TSV output, including word positions and confidence values.
 - Per-job language selection (`auto`, Dutch, English, Dutch + English, French or German), with per-page dominant-language estimates in the quality report.
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
-- A JSON quality report with per-page decisions, OCR confidence, warnings and aggregate counts; recognized book text is deliberately excluded.
+- A schema-versioned JSON quality report with per-page decisions, OCR confidence, warnings, EPUB output statistics and aggregate content-quality metrics; recognized book text is deliberately excluded.
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
 - Conservative per-page paragraph reconstruction shared by native PDF text and OCR, with durable paragraph checkpoints.
 - A separate dehyphenation checkpoint stage that removes explicit Unicode soft hyphens while preserving ambiguous visible hyphens and compound words.
@@ -276,6 +276,20 @@ The current implementation foundation includes:
 The worker now runs the complete backend conversion path: PDF analysis, native-text extraction and sampled OCR validation, Tesseract OCR where required, line and paragraph reconstruction, conservative dehyphenation, repeated page-furniture removal, chapter/heading detection, document-model assembly and EPUB 3 generation. It stores resumable checkpoints and marks a job complete only after the EPUB has passed runtime structural validation and a JSON quality report has been written. The report contains page diagnostics and aggregate quality metrics, not recognized book text.
 
 The conversion job can be created and processed internally, but the PDF-to-EPUB workflow is not yet exposed through a public upload/status/download API or the web interface. The existing `/shrink` endpoint remains separate and unchanged.
+
+### Conversion quality report
+
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 2 and includes:
+
+- Source PDF and generated EPUB sizes in bytes.
+- Reconstructed chapter, paragraph, heading and word counts.
+- Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
+- Text-page coverage across non-empty source pages.
+- Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
+
+The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes both page-level warnings and content-quality warning entries.
+
+The report contains aggregate metrics and diagnostics only. It deliberately does not store recognized book text.
 
 ### Runtime EPUB validation
 
@@ -292,7 +306,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 2), including EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
@@ -302,12 +316,11 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Add EPUB output statistics and non-fatal content-quality warnings to the conversion report.
-2. Expose conversion jobs through an API, then add upload, progress, cancellation and download support to the web UI.
-3. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
-4. Implement job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
-5. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
-6. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
+1. Expose conversion jobs through a public API, including upload, status/progress, cancellation and EPUB/quality-report download; then add the corresponding web UI.
+2. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
+3. Implement job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
+4. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
+5. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
 Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Images and illustrations from the source PDF are not yet transferred into the generated EPUB; this remains an explicit content-preservation milestone.
 
