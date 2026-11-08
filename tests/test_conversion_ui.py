@@ -26,6 +26,13 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'value="fra"' in html
     assert 'value="deu"' in html
     assert 'id="conversion-list"' in html
+    assert 'id="clear-conversion-history"' in html
+    assert 'PDF-to-EPUB history' in html
+    assert 'loadConversionHistory()' in html
+    assert 'fetch("/api/conversions?limit=20"' in html
+    assert 'addDeleteAction(item,job)' in html
+    assert 'Permanently delete this conversion' in html
+    assert 'Clear completed, failed and cancelled conversions' in html
     assert 'fetch("/api/conversions"' in html
     assert 'method:"DELETE"' in html
     assert 'Download EPUB' in html
