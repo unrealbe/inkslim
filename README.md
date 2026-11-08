@@ -275,7 +275,7 @@ The current implementation foundation includes:
 
 The worker now runs the complete backend conversion path: PDF analysis, native-text extraction and sampled OCR validation, Tesseract OCR where required, line and paragraph reconstruction, conservative dehyphenation, repeated page-furniture removal, chapter/heading detection, document-model assembly and EPUB 3 generation. It stores resumable checkpoints and marks a job complete only after the EPUB has passed runtime structural validation and a JSON quality report has been written. The report contains page diagnostics and aggregate quality metrics, not recognized book text.
 
-The conversion job can be created and processed internally, but the PDF-to-EPUB workflow is not yet exposed through a public upload/status/download API or the web interface. The existing `/shrink` endpoint remains separate and unchanged.
+The conversion job can now be created, monitored, cancelled and downloaded through the public API. The web interface is not yet connected to this API. The existing `/shrink` endpoint remains separate and unchanged.
 
 ### Conversion quality report
 
@@ -316,7 +316,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Expose conversion jobs through a public API, including upload, status/progress, cancellation and EPUB/quality-report download; then add the corresponding web UI.
+1. Connect the web interface to the conversion API; then implement automatic job cleanup and storage quotas.
 2. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
 3. Implement job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
 4. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
@@ -382,6 +382,22 @@ The web application exposes a small API:
 | GET | /healthz | Health check; returns ok. |
 | GET | /favicon.ico | Browser favicon. |
 | POST | /shrink | Process one uploaded EPUB or PDF. |
+| POST | /api/conversions | Upload a PDF and create an asynchronous PDF-to-EPUB job. |
+| GET | /api/conversions/{id} | Read conversion status and page progress. |
+| DELETE | /api/conversions/{id} | Cancel a queued or active conversion. |
+| GET | /api/conversions/{id}/download | Download the validated EPUB after completion. |
+| GET | /api/conversions/{id}/report | Download the JSON quality report after completion. |
+
+### PDF-to-EPUB conversion API
+
+The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field accepts `auto` (default), `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`.
+
+- `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**.
+- `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
+- `DELETE /api/conversions/{id}` requests cancellation. Queued jobs are cancelled immediately; active jobs stop cooperatively between processing pages. A repeated request for a terminal job returns **409**.
+- `GET /api/conversions/{id}/download` and `GET /api/conversions/{id}/report` return **409** until the job is complete. They only serve files located inside that job's output directory; the EPUB is structurally validated again before download.
+
+The API reuses the persistent SQLite queue and separate worker service. Upload size is bounded by `MAX_UPLOAD_MB`; PDF page count is bounded by `MAX_PDF_PAGES`. It does not expose filesystem paths or worker internals. Basic Authentication, when enabled, also protects these endpoints.
 
 ### POST /shrink
 
@@ -441,7 +457,7 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is not yet exposed as a user-facing feature.** The backend can analyze PDFs, extract native text, run OCR, reconstruct document structure and generate a structurally validated EPUB. A public conversion API and web UI are still future milestones. Source-PDF illustrations are not yet embedded in the generated EPUB. Do not treat the current conversion worker as a finished end-user workflow.
+- **PDF-to-EPUB is exposed through the asynchronous API, but not yet through the web interface.** The backend can analyze PDFs, extract native text, run OCR, reconstruct document structure and generate a structurally validated EPUB. Source-PDF illustrations are not yet embedded in the generated EPUB. Do not treat the current conversion worker as a finished end-user workflow.
 
 ### General
 

@@ -25,6 +25,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from flask import Flask, Response, jsonify, request, send_file
 
+from conversion.api import conversion_api
+
 # Store page images as raw JPEG (DCTDecode). ReportLab's default ASCII85 text encoding
 # makes every image about 20 percent larger for no benefit.
 rl_config.useA85 = 0
@@ -47,6 +49,8 @@ AUTH_PASS = os.environ.get("BASIC_AUTH_PASS", "")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
+app.config["CONVERSION_MAX_PDF_PAGES"] = MAX_PDF_PAGES
+app.register_blueprint(conversion_api)
 app.logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 
