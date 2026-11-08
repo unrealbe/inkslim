@@ -99,6 +99,7 @@ def build_quality_report(
     if timestamp.tzinfo is None:
         raise ValueError("generated_at must be timezone-aware")
 
+    marginalia = workspace.load_marginalia_analysis()
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "pdf_page_analysis_and_ocr_quality",
@@ -109,6 +110,11 @@ def build_quality_report(
             "language_selection": job.language,
             "ocr_languages": ocr_languages_for_selection(job.language),
             "total_pages": total_pages,
+        },
+        "marginalia": {
+            "detected_items": len(marginalia["items"]) if marginalia else 0,
+            "removed_paragraphs": marginalia["removed_paragraphs"] if marginalia else 0,
+            "pages_with_removals": marginalia["pages_with_removals"] if marginalia else [],
         },
         "summary": {
             "total_pages": total_pages,

@@ -17,6 +17,7 @@ from ..lines import ReconstructedLine, reconstruct_lines
 from ..paragraphs import reconstruct_paragraphs
 from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
+from ..pagination import detect_repeated_marginalia
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -180,6 +181,54 @@ class PdfOcrJobProcessor:
                     )
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after paragraph reconstruction")
+
+                # Page furniture is a document-level signal; analyze only after
+                # all per-page dehyphenated paragraph checkpoints are durable.
+                marginalia = workspace.load_marginalia_analysis()
+                if marginalia is None or marginalia.get("total_pages") != total_pages:
+                    pages = {}
+                    for page_number in range(1, total_pages + 1):
+                        checkpoint = workspace.load_page_dehyphenated(page_number)
+                        if checkpoint is None:
+                            raise JobProcessingError(
+                                "DEHYPHENATION_CHECKPOINT_MISSING",
+                                f"Processed text for page {page_number} is missing.",
+                            )
+                        pages[page_number] = checkpoint[0]
+                    marginalia, cleaned_pages = detect_repeated_marginalia(
+                        pages, total_pages=total_pages
+                    )
+                    workspace.save_marginalia_analysis(marginalia)
+                else:
+                    cleaned_pages = {}
+
+                removed_indexes = {
+                    (item["page_number"], item["paragraph_index"])
+                    for item in marginalia.get("removed", [])
+                }
+                for page_number in range(1, total_pages + 1):
+                    if store.is_cancel_requested(job.id):
+                        raise JobCancelled(
+                            f"Cancellation requested before page cleanup {page_number}"
+                        )
+                    if workspace.load_page_cleaned_paragraphs(page_number) is not None:
+                        continue
+                    if page_number in cleaned_pages:
+                        paragraphs = cleaned_pages[page_number]
+                    else:
+                        checkpoint = workspace.load_page_dehyphenated(page_number)
+                        if checkpoint is None:
+                            raise JobProcessingError(
+                                "DEHYPHENATION_CHECKPOINT_MISSING",
+                                f"Processed text for page {page_number} is missing.",
+                            )
+                        paragraphs = [
+                            paragraph for index, paragraph in enumerate(checkpoint[0])
+                            if (page_number, index) not in removed_indexes
+                        ]
+                    workspace.save_page_cleaned_paragraphs(page_number, paragraphs)
+                if store.is_cancel_requested(job.id):
+                    raise JobCancelled("Cancellation requested after page furniture cleanup")
             report_path = build_quality_report(job, workspace, total_pages=total_pages)
             return JobExecutionResult(
                 report_path=report_path,
