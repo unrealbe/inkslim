@@ -8,6 +8,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 
 from ..models import Job, JobStatus
+from ..language import ocr_languages_for_selection
 from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
@@ -83,7 +84,7 @@ class PdfOcrJobProcessor:
 
                     try:
                         result = self.engine.recognize(
-                            destination, job.language.split("+"), page_number=page_number
+                            destination, ocr_languages_for_selection(job.language), page_number=page_number
                         )
                     except OcrError as exc:
                         raise JobProcessingError(exc.code, exc.public_message) from exc

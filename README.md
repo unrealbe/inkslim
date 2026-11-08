@@ -270,7 +270,7 @@ The current implementation foundation includes:
 - A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction and conservative soft-hyphen cleanup. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
+The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics and conservative soft-hyphen cleanup. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so this option is currently exposed through the job-creation interface rather than a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
 
 The repository also contains a dependency-free EPUB 3 writer. That writer is tested independently, but it is not yet connected to the PDF conversion job.
 
@@ -291,7 +291,7 @@ The repository also contains a dependency-free EPUB 3 writer. That writer is tes
 **Next implementation milestones**
 
 1. Improve reading order, including multi-column pages and column boundaries.
-2. Add language-aware validation so safe visible-hyphen candidates can eventually be resolved automatically; ambiguous cases must remain unchanged.
+2. Use detected page language for language-aware validation so safe visible-hyphen candidates can eventually be resolved; ambiguous cases must remain unchanged.
 3. Detect and remove repeated headers, footers and page numbers.
 4. Detect headings and chapter boundaries.
 5. Connect processed paragraphs to the existing EPUB 3 writer and assemble a complete book.

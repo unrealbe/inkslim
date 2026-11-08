@@ -72,6 +72,8 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["schema_version"] == 1
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["job"]["total_pages"] == 3
+    assert report["job"]["language_selection"] == "nld+eng"
+    assert report["job"]["ocr_languages"] == ["nld", "eng"]
     assert report["summary"]["decisions"] == {
         "use_native": 1,
         "ocr_required": 1,

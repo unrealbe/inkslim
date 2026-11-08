@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Job, PageResult
+from .language import detect_page_language, ocr_languages_for_selection
 from .pdf.models import PageAnalysis, PageDecision
 from .storage import JobWorkspace
 
@@ -81,6 +82,9 @@ def build_quality_report(
             "result": None,
         }
         if result is not None:
+            recognized_text = "\n".join(block.text for block in result.blocks)
+            detected_language = detect_page_language(recognized_text)
+            page["language"] = detected_language.to_dict() if detected_language else None
             page["result"] = {
                 "source": result.source.value,
                 "quality": result.quality.value,
@@ -102,7 +106,8 @@ def build_quality_report(
         "job": {
             "id": job.id,
             "input_name": job.input_name,
-            "language": job.language,
+            "language_selection": job.language,
+            "ocr_languages": ocr_languages_for_selection(job.language),
             "total_pages": total_pages,
         },
         "summary": {

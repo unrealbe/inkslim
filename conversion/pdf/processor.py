@@ -10,6 +10,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 
 from ..models import Job, JobStatus, TextSource
+from ..language import ocr_languages_for_selection
 from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..lines import reconstruct_lines
@@ -98,7 +99,7 @@ class PdfAnalysisJobProcessor:
         result = workspace.load_page_result(analysis.page_number)
         if result is None or result.source is not TextSource.TESSERACT:
             result = self.engine.recognize(
-                destination, job.language.split("+"), page_number=analysis.page_number
+                destination, ocr_languages_for_selection(job.language), page_number=analysis.page_number
             )
             workspace.save_page_result(result)
 

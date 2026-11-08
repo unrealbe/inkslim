@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from .language import normalize_language_selection
 from .models import (
     ACTIVE_JOB_STATUSES,
     Job,
@@ -506,7 +507,7 @@ class JobStore:
         self,
         source_path: Path,
         input_name: str,
-        language: str = "nld+eng",
+        language: str = "auto",
         *,
         expires_in: timedelta | None = None,
     ) -> Job:
@@ -515,8 +516,7 @@ class JobStore:
             raise ValueError("Input must be a file")
         if source.suffix.lower() != ".pdf":
             raise ValueError("Conversion V1 currently accepts PDF input only")
-        if not language or len(language) > 64:
-            raise ValueError("language must be a non-empty language identifier")
+        language = normalize_language_selection(language)
 
         job_id = str(uuid.uuid4())
         workspace = self.workspace(job_id)
