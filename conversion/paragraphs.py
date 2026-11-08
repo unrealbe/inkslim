@@ -50,6 +50,11 @@ def _paragraph_break(
 
     # A larger-than-normal baseline step plus visible whitespace is a strong
     # paragraph signal. Requiring both avoids splitting ordinary loose leading.
+    # A very large physical gap is sufficient on its own, including on
+    # short pages where there is not enough data to estimate normal leading.
+    if vertical_gap > median_line_height * 1.2:
+        return True
+
     if (
         line_advance > median_line_advance * 1.55
         and vertical_gap > median_line_height * 0.35
