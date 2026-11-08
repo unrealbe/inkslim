@@ -747,7 +747,13 @@ def test_pdf_job_analyzes_all_pages_and_enters_ready_for_ocr(store, tmp_path):
         PageDecision.EMPTY,
         PageDecision.USE_NATIVE,
     ]
-    assert not workspace.page_result_path(1).exists()
+    native_result = workspace.load_page_result(1)
+    assert native_result is not None
+    assert native_result.source.value == "native"
+    assert native_result.blocks
+    assert workspace.load_page_lines(1)
+    assert workspace.load_page_result(2) is None
+    assert workspace.load_page_result(3) is None
 
 
 def test_pdf_job_updates_sqlite_progress_after_each_page(store, tmp_path, monkeypatch):

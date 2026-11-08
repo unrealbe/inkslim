@@ -82,7 +82,10 @@ def test_sampled_native_text_is_accepted_when_ocr_agrees(tmp_path):
     assert analysis.decision is PageDecision.USE_NATIVE
     assert any(item.startswith("NATIVE_OCR_SIMILARITY:") for item in analysis.warnings)
     assert checkpoint is not None
-    assert checkpoint.source is TextSource.TESSERACT
+    assert checkpoint.source is TextSource.NATIVE
+    assert checkpoint.blocks
+    assert all(block.source is TextSource.NATIVE for block in checkpoint.blocks)
+    assert store.workspace(job.id).load_page_lines(1)
 
 
 def test_native_text_is_routed_to_ocr_when_sample_disagrees(tmp_path):
@@ -92,8 +95,44 @@ def test_native_text_is_routed_to_ocr_when_sample_disagrees(tmp_path):
     analysis = store.workspace(job.id).load_page_analysis(1)
     assert analysis.decision is PageDecision.OCR_REQUIRED
     assert "NATIVE_OCR_MISMATCH" in analysis.warnings
-    assert store.workspace(job.id).load_page_result(1) is not None
+    assert store.workspace(job.id).load_page_result(1).source is TextSource.TESSERACT
 
     # The regular OCR phase must reuse the validation result instead of running OCR twice.
     assert worker.run_once()
     assert engine.calls == [1]
+
+
+
+def test_native_text_result_contains_normalized_geometry_and_line_checkpoints(tmp_path):
+    text = (
+        "The first line contains native PDF text with selectable characters. "
+        "The second line continues the same paragraph with more readable words."
+    )
+    source = make_native_pdf(tmp_path / "native-lines.pdf", text)
+    store = JobStore(tmp_path / "native-lines.sqlite3", tmp_path / "native-lines-jobs")
+    job = store.create_job(source, source.name, language="eng")
+    worker = ConversionWorker(
+        store,
+        PdfConversionJobProcessor(native_text_sample_interval=0),
+        worker_id="native-lines",
+    )
+
+    assert worker.run_once()
+
+    workspace = store.workspace(job.id)
+    result = workspace.load_page_result(1)
+    assert result is not None
+    assert result.source is TextSource.NATIVE
+    assert result.quality is QualityStatus.HIGH
+    assert "first line" in " ".join(block.text for block in result.blocks).lower()
+    assert "second line" in " ".join(block.text for block in result.blocks).lower()
+    assert len(result.blocks) >= 2
+    assert all(block.confidence is None for block in result.blocks)
+    assert all(
+        0 <= x0 <= x1 <= 1 and 0 <= y0 <= y1 <= 1
+        for block in result.blocks
+        for x0, y0, x1, y1 in [block.bbox]
+    )
+    lines = workspace.load_page_lines(1)
+    assert lines is not None
+    assert len(lines) == len(result.blocks)

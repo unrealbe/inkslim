@@ -9,13 +9,18 @@ from pathlib import Path
 
 import pypdfium2 as pdfium
 
-from ..models import Job, JobStatus
+from ..models import Job, JobStatus, TextSource
 from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
+from ..lines import reconstruct_lines
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
 from .analyzer import PdfAnalysisError, analyze_pdf_page, open_pdf_document
 from .models import PageDecision
-from .native_text import extract_native_text
+from .native_text import (
+    NativeTextGeometryError,
+    extract_native_page_result,
+    extract_native_text,
+)
 from .renderer import PDFRenderLimits, RenderPlanError, build_render_plan, render_pdf_page
 
 logger = logging.getLogger(__name__)
@@ -91,7 +96,7 @@ class PdfAnalysisJobProcessor:
         # A PageResult written before the analysis checkpoint makes a crash between
         # the two writes idempotent: a retry compares against the same OCR output.
         result = workspace.load_page_result(analysis.page_number)
-        if result is None:
+        if result is None or result.source is not TextSource.TESSERACT:
             result = self.engine.recognize(
                 destination, job.language.split("+"), page_number=analysis.page_number
             )
@@ -106,6 +111,44 @@ class PdfAnalysisJobProcessor:
         elif similarity < _NATIVE_VALIDATION_SIMILARITY:
             analysis.decision = PageDecision.OCR_REQUIRED
             analysis.warnings.append("NATIVE_OCR_MISMATCH")
+
+    def _prepare_ocr_render(self, analysis) -> None:
+        if analysis.render_dpi is not None:
+            return
+        try:
+            plan = build_render_plan(
+                analysis.width, analysis.height, limits=self.render_limits
+            )
+            analysis.render_dpi = plan.actual_dpi
+            analysis.render_width_px = plan.width_px
+            analysis.render_height_px = plan.height_px
+            analysis.warnings.extend(plan.warnings)
+        except RenderPlanError:
+            analysis.warnings.append("RENDER_LIMIT_EXCEEDED")
+
+    def _ensure_native_result(self, page, analysis, workspace) -> None:
+        existing = workspace.load_page_result(analysis.page_number)
+        if existing is not None and existing.source is TextSource.NATIVE:
+            result = existing
+        else:
+            try:
+                result = extract_native_page_result(
+                    page,
+                    analysis.page_number,
+                    native_text_score=analysis.native_text_quality,
+                )
+            except NativeTextGeometryError:
+                analysis.decision = PageDecision.OCR_REQUIRED
+                analysis.warnings.append("NATIVE_TEXT_EXTRACTION_FAILED")
+                self._prepare_ocr_render(analysis)
+                return
+            workspace.save_page_result(result)
+
+        # Native and OCR pages share the same downstream line checkpoint format.
+        workspace.save_page_lines(
+            analysis.page_number,
+            [line.to_dict() for line in reconstruct_lines(result)],
+        )
 
     def __call__(
         self,
@@ -136,7 +179,18 @@ class PdfAnalysisJobProcessor:
                             f"Cancellation requested before PDF page {page_number}"
                         )
 
-                    if workspace.load_page_analysis(page_number) is not None:
+                    cached_analysis = workspace.load_page_analysis(page_number)
+                    if cached_analysis is not None:
+                        if cached_analysis.decision is PageDecision.USE_NATIVE:
+                            page = document[page_index]
+                            try:
+                                self._ensure_native_result(
+                                    page, cached_analysis, workspace
+                                )
+                            finally:
+                                page.close()
+                            if cached_analysis.decision is not PageDecision.USE_NATIVE:
+                                workspace.save_page_analysis(cached_analysis)
                         continue
 
                     page = document[page_index]
@@ -154,22 +208,15 @@ class PdfAnalysisJobProcessor:
                                 analysis.warnings.append(
                                     f"NATIVE_OCR_VALIDATION_FAILED:{exc.code}"
                                 )
-                                if analysis.render_dpi is None:
-                                    try:
-                                        plan = build_render_plan(
-                                            analysis.width, analysis.height,
-                                            limits=self.render_limits,
-                                        )
-                                        analysis.render_dpi = plan.actual_dpi
-                                        analysis.render_width_px = plan.width_px
-                                        analysis.render_height_px = plan.height_px
-                                    except RenderPlanError:
-                                        analysis.warnings.append("RENDER_LIMIT_EXCEEDED")
+                                self._prepare_ocr_render(analysis)
+
+                        if analysis.decision is PageDecision.USE_NATIVE:
+                            self._ensure_native_result(page, analysis, workspace)
                     finally:
                         page.close()
 
-                    # The page result (if sampled) is durable before this analysis
-                    # checkpoint, so interrupted validation can resume without OCR.
+                    # The result checkpoint is durable before the analysis checkpoint.
+                    # A retry can safely recreate a native result or reuse sampled OCR.
                     workspace.save_page_analysis(analysis)
                     completed += 1
                     store.update_progress(

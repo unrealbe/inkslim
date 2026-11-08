@@ -258,6 +258,7 @@ The current implementation foundation includes:
 - Separate `web` and `worker` Compose services using the same image.
 - PDF page analysis with durable, atomic per-page analysis checkpoints.
 - Classification of pages so that OCR is only attempted where analysis says it is required.
+- Native PDF text extraction into the same durable `PageResult` and line-checkpoint format used by OCR pages.
 - PDFium page rendering with configurable DPI, pixel-count and dimension limits.
 - Tesseract OCR using TSV output, including word positions and confidence values.
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
@@ -265,7 +266,7 @@ The current implementation foundation includes:
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: native PDF text extraction and quality validation, text reading-order reconstruction, paragraph and heading detection, header/footer cleanup, dehyphenation, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
+The current worker advances jobs through analysis and OCR and writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. Later milestones are still required before a complete book can be produced: advanced reading-order and multi-column layout reconstruction, paragraph and heading detection, header/footer cleanup, dehyphenation, EPUB assembly from processed pages, final EPUB validation, API endpoints and web UI.
 
 ### Persistent data
 
@@ -384,7 +385,7 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is not yet exposed as a user-facing feature.** The repository now contains the background job infrastructure, PDF page analysis, resumable checkpoints and a Tesseract TSV OCR backend. The worker can process pages classified as requiring OCR, but text post-processing, native-text extraction integration, EPUB assembly from conversion jobs, validation/reporting, the conversion API and its UI are still future milestones. Do not treat the current OCR worker as a complete PDF-to-EPUB converter.
+- **PDF-to-EPUB is not yet exposed as a user-facing feature.** The repository now contains the background job infrastructure, PDF page analysis, resumable checkpoints, native text extraction into normalized page results, and a Tesseract TSV OCR backend. The worker can process pages classified as requiring OCR, but text post-processing, EPUB assembly from conversion jobs, final EPUB validation, the conversion API and its UI are still future milestones. Do not treat the current OCR worker as a complete PDF-to-EPUB converter.
 
 ### General
 
