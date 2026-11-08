@@ -13,6 +13,7 @@ from ..ocr import OcrEngine, OcrError, TesseractOcrEngine
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobExecutionResult, JobProcessingError
 from ..quality_report import build_quality_report
+from ..pipeline_debug import debug_page_requested, dump_page_pipeline
 from ..lines import ReconstructedLine, reconstruct_lines
 from ..paragraphs import reconstruct_paragraphs
 from ..dehyphenation import dehyphenate_paragraphs
@@ -149,10 +150,32 @@ class PdfOcrJobProcessor:
                                 "LINE_CHECKPOINT_INVALID",
                                 f"Text line data for page {page_number} is invalid.",
                             ) from exc
-                    raw_paragraphs = [
-                        paragraph.to_dict() for paragraph in reconstruct_paragraphs(lines)
-                    ]
+                    paragraphs = reconstruct_paragraphs(lines)
+                    raw_paragraphs = [paragraph.to_dict() for paragraph in paragraphs]
                     workspace.save_page_paragraphs(page_number, raw_paragraphs)
+
+                    # Diagnostics are opt-in and scoped to one page. They capture
+                    # the durable PageResult, the exact line checkpoint consumed
+                    # here, and the paragraph output before later cleanup stages.
+                    if debug_page_requested(page_number):
+                        page_result = workspace.load_page_result(page_number)
+                        if page_result is None:
+                            logger.warning(
+                                "DEBUG_CONVERSION_PAGE=%s has no PageResult checkpoint",
+                                page_number,
+                            )
+                        else:
+                            debug_path = workspace.root / f"{page_number:06d}-debug.json"
+                            try:
+                                dump_page_pipeline(
+                                    page_result, lines, paragraphs, debug_path
+                                )
+                                logger.info("Wrote PDF pipeline debug dump: %s", debug_path)
+                            except OSError:
+                                logger.exception(
+                                    "Could not write PDF pipeline debug dump for page %s",
+                                    page_number,
+                                )
 
                     # Visible hyphens at line endings are ambiguous. Record
                     # candidates for later language-aware review; never alter
