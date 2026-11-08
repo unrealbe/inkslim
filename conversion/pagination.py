@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import Any
 
 SCHEMA_VERSION = 1
-_PAGE_NUMBER = re.compile(r'^(?:[-–—]\\s*)?(?:\\d{1,4}|[ivxlcdm]{1,12})(?:\\s*[-–—])?$', re.IGNORECASE)
+_PAGE_NUMBER = re.compile(r'^(?:[-–—]\s*)?(?:\d{1,4}|[ivxlcdm]{1,12})(?:\s*[-–—])?$', re.IGNORECASE)
 
 def _bbox(paragraph):
     value = paragraph.get('bbox')
@@ -16,7 +16,7 @@ def _bbox(paragraph):
     return coords if 0 <= x0 <= x1 <= 1 and 0 <= y0 <= y1 <= 1 else None
 
 def _normalize(text):
-    return ' '.join(unicodedata.normalize('NFKC', text).casefold().split()).strip(' \\t\\n\\r.,:;|')
+    return ' '.join(unicodedata.normalize('NFKC', text).casefold().split()).strip(' \t\n\r.,:;|')
 
 def detect_repeated_marginalia(pages: dict[int, list[dict[str, Any]]], *, total_pages: int):
     if total_pages < 1: raise ValueError('total_pages must be at least 1')
