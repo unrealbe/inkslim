@@ -991,7 +991,7 @@ function showQualityReport(url) {
     const stats = document.createElement("div");
     stats.className = "report-stats";
     const values = [
-      [(summary.pages_with_results || 0) + "/" + (summary.total_pages || 0),"Pages processed"],
+      [(summary.pages_with_results || 0) + "/" + (summary.total_pages || 0),"Pages with results"],
       [Number(output.word_count || 0).toLocaleString(),"Words extracted"],
       [decisions.use_native || 0,"Native text pages"],
       [decisions.ocr_required || 0,"OCR pages"],
@@ -1025,7 +1025,14 @@ function showQualityReport(url) {
     const warningTitle = document.createElement("h3");
     warningTitle.textContent = "Content warnings";
     const warnings = document.createElement("p");
-    warnings.textContent = (quality.warnings || []).length ? quality.warnings.join(", ") : "No content warnings.";
+    const warningItems = Array.isArray(quality.warnings) ? quality.warnings : [];
+    const warningLines = warningItems.map(warning => {
+      if (typeof warning === "string") return warning;
+      const pages = Array.isArray(warning.page_numbers) && warning.page_numbers.length
+        ? " (pages " + warning.page_numbers.join(", ") + ")" : "";
+      return (warning.message || warning.code || "Content warning") + pages;
+    });
+    warnings.textContent = warningLines.length ? warningLines.join(" · ") : "No content warnings.";
     panel.append(warningTitle,warnings);
     const outputInfo = document.createElement("p");
     outputInfo.className = "meta";
