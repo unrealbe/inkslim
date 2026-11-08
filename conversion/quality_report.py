@@ -225,7 +225,7 @@ def build_quality_report(
             "pages_with_results": sum(sources.values()),
             "result_sources": dict(sorted(sources.items())),
             "result_qualities": dict(sorted(qualities.items())),
-            "warning_count": warning_count,
+            "warning_count": warning_count + len(content_warnings),
             "mean_ocr_confidence": (
                 round(sum(confidence_values) / len(confidence_values), 2)
                 if confidence_values else None
