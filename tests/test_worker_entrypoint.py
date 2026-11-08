@@ -9,9 +9,11 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
     calls = {}
 
     class FakeStore:
-        def __init__(self, database_path, jobs_dir):
+        def __init__(self, database_path, jobs_dir, *, max_storage_bytes, retention_hours):
             calls["database_path"] = database_path
             calls["jobs_dir"] = jobs_dir
+            calls["max_storage_bytes"] = max_storage_bytes
+            calls["retention_hours"] = retention_hours
 
     class FakeProcessor:
         def __init__(self, render_limits, *, timeout_seconds, native_text_sample_interval):
@@ -42,6 +44,8 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
 
     assert calls["database_path"] == tmp_path / "conversion" / "jobs.sqlite3"
     assert calls["jobs_dir"] == tmp_path / "conversion" / "jobs"
+    assert calls["max_storage_bytes"] == 5 * 1024**3
+    assert calls["retention_hours"] == 24
     assert calls["render_limits"].dpi == 240
     assert calls["render_limits"].minimum_dpi == 100
     assert calls["render_limits"].max_pixels == 40_000_000
