@@ -10,6 +10,10 @@ _SELECTIONS = {
     "nld+eng": ("nld", "eng"), "fra": ("fra",), "deu": ("deu",),
     "fra+eng": ("fra", "eng"),
 }
+_EPUB_LANGUAGES = {
+    "auto": "nl", "nld": "nl", "eng": "en", "nld+eng": "nl",
+    "fra": "fr", "deu": "de", "fra+eng": "fr",
+}
 _DETECTED = {"nl": "nld", "en": "eng", "fr": "fra", "de": "deu"}
 _MINIMUM_LETTERS = 80
 _MINIMUM_PROBABILITY = 0.80
@@ -31,6 +35,10 @@ def normalize_language_selection(value: str) -> str:
 
 def ocr_languages_for_selection(value: str) -> list[str]:
     return list(_SELECTIONS[normalize_language_selection(value)])
+
+def epub_language_for_selection(value: str) -> str:
+    """Return a standard BCP 47 language code for EPUB metadata."""
+    return _EPUB_LANGUAGES[normalize_language_selection(value)]
 
 def detect_page_language(text: str) -> LanguageDetection | None:
     """Detect a dominant supported language; short/uncertain/mixed text returns None."""

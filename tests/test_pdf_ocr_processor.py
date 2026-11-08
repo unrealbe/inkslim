@@ -55,7 +55,9 @@ def test_worker_runs_ocr_after_analysis_and_saves_page_result(tmp_path):
 
     result = store.get_job(job.id)
     checkpoint = store.workspace(job.id).load_page_result(1)
-    assert result.status is JobStatus.EXTRACTING
+    assert result.status is JobStatus.COMPLETED
+    assert result.output_path is not None
+    assert Path(result.output_path).is_file()
     assert checkpoint is not None
     assert checkpoint.blocks[0].text == "Dit is herkende tekst"
     assert engine.calls[0][1:] == (["nld", "eng"], 1)
@@ -101,7 +103,8 @@ def test_ocr_phase_skips_valid_page_result_checkpoint(tmp_path):
     second_worker.run_once()
 
     assert engine.calls == []
-    assert store.get_job(job.id).status is JobStatus.EXTRACTING
+    assert store.get_job(job.id).status is JobStatus.COMPLETED
+    assert Path(store.get_job(job.id).output_path).is_file()
     paragraphs = store.workspace(job.id).load_page_paragraphs(1)
     assert paragraphs is not None
     assert [item["text"] for item in paragraphs] == ["Dit is herkende tekst"]
@@ -167,9 +170,10 @@ def test_structure_annotations_recovered_when_interrupted_after_global_analysis(
     worker.run_once()
     assert store.get_job(job.id).status is JobStatus.READY_FOR_OCR
 
-    # Step 2: Run OCR through to extracting
+    # Step 2: Run OCR through to completed
     worker.run_once()
-    assert store.get_job(job.id).status is JobStatus.EXTRACTING
+    assert store.get_job(job.id).status is JobStatus.COMPLETED
+    assert Path(store.get_job(job.id).output_path).is_file()
 
     workspace = store.workspace(job.id)
     p1_structure = workspace.load_page_structure(1)
@@ -193,7 +197,8 @@ def test_structure_annotations_recovered_when_interrupted_after_global_analysis(
 
     # Worker resumes the job
     worker.run_once()
-    assert store.get_job(job.id).status is JobStatus.EXTRACTING
+    assert store.get_job(job.id).status is JobStatus.COMPLETED
+    assert Path(store.get_job(job.id).output_path).is_file()
 
     # Verify page 2 structure was deterministically restored, not left as []
     restored_p2_structure = workspace.load_page_structure(2)

@@ -19,6 +19,7 @@ from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
 from ..pagination import detect_repeated_marginalia
 from ..structure import detect_document_structure
+from ..epub.generator import generate_job_epub
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -269,10 +270,12 @@ class PdfOcrJobProcessor:
                     workspace.save_page_structure(page_number, annotations)
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after document structure detection")
+            output_path = generate_job_epub(job, workspace, total_pages=total_pages, store=store)
             report_path = build_quality_report(job, workspace, total_pages=total_pages)
             return JobExecutionResult(
+                output_path=output_path,
                 report_path=report_path,
-                next_status=JobStatus.EXTRACTING,
+                next_status=JobStatus.COMPLETED,
             )
         except (JobCancelled, JobProcessingError):
             raise

@@ -1,0 +1,184 @@
+import tempfile
+import xml.etree.ElementTree as ET
+import zipfile
+from pathlib import Path
+
+from conversion.document import build_document_model
+from conversion.epub.generator import generate_job_epub, is_valid_epub
+from conversion.models import Job, JobStatus
+from conversion.storage import JobWorkspace
+
+NS = {
+    "opf": "http://www.idpf.org/2007/opf",
+    "dc": "http://purl.org/dc/elements/1.1/",
+    "x": "http://www.w3.org/1999/xhtml",
+    "ncx": "http://www.daisy.org/z3986/2005/ncx/",
+}
+
+
+def _para(index, text, bbox=(0.1, 0.1, 0.9, 0.2)):
+    return {
+        "paragraph_index": index,
+        "text": text,
+        "bbox": list(bbox),
+        "confidence": 95.0,
+        "source": "native",
+        "line_indices": [index],
+    }
+
+
+def _dummy_job(tmp_path, name="test-book.pdf", language="auto"):
+    return Job(
+        id="11111111-1111-1111-1111-111111111111",
+        status=JobStatus.OCR,
+        input_name=name,
+        input_path=str(tmp_path / name),
+        language=language,
+    )
+
+
+def test_generate_job_epub_with_multiple_chapters(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-multi")
+    workspace.create()
+
+    p1 = [_para(1, "CHAPTER 1"), _para(2, "Eerste alinea van hoofdstuk 1.")]
+    p2 = [_para(1, "CHAPTER 2: DE REIS"), _para(2, "Tweede hoofdstuk tekst.")]
+    workspace.save_page_cleaned_paragraphs(1, p1)
+    workspace.save_page_cleaned_paragraphs(2, p2)
+
+    workspace.save_structure_analysis({
+        "schema_version": 1,
+        "total_pages": 2,
+        "heading_count": 2,
+        "chapter_count": 2,
+        "chapters": [
+            {"chapter_index": 1, "page_number": 1, "paragraph_index": 1, "title": "CHAPTER 1"},
+            {"chapter_index": 2, "page_number": 2, "paragraph_index": 1, "title": "CHAPTER 2: DE REIS"},
+        ],
+    })
+    workspace.save_page_structure(1, [{"paragraph_index": 1, "text": "CHAPTER 1", "kind": "chapter_heading", "chapter_start": True}])
+    workspace.save_page_structure(2, [{"paragraph_index": 1, "text": "CHAPTER 2: DE REIS", "kind": "chapter_heading", "chapter_start": True}])
+
+    job = _dummy_job(tmp_path, name="avontuur.pdf", language="nld")
+    epub_path = generate_job_epub(job, workspace, total_pages=2)
+
+    assert epub_path.is_file()
+    assert is_valid_epub(epub_path)
+    assert epub_path.name == "avontuur.epub"
+
+    # Verify EPUB contents and XML well-formedness
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        assert archive.infolist()[0].filename == "mimetype"
+        assert archive.read("mimetype").strip() == b"application/epub+zip"
+
+        # Check content.opf
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:language", namespaces=NS) == "nl"
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Avontuur"
+        spine = [item.get("idref") for item in opf.findall("opf:spine/opf:itemref", NS)]
+        assert len(spine) == 2
+
+        # Check chapters
+        ch1 = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        assert ch1.findtext(".//x:h1", namespaces=NS) == "CHAPTER 1"
+        assert ch1.findtext(".//x:p", namespaces=NS) == "Eerste alinea van hoofdstuk 1."
+
+        ch2 = ET.fromstring(archive.read("OEBPS/chapter_0002.xhtml"))
+        assert ch2.findtext(".//x:h1", namespaces=NS) == "CHAPTER 2: DE REIS"
+        assert ch2.findtext(".//x:p", namespaces=NS) == "Tweede hoofdstuk tekst."
+
+
+def test_generate_job_epub_fallback_without_chapters(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-fallback")
+    workspace.create()
+
+    p1 = [_para(1, "Gewone tekst zonder hoofdstukaanduiding.")]
+    workspace.save_page_cleaned_paragraphs(1, p1)
+    workspace.save_structure_analysis({
+        "schema_version": 1,
+        "total_pages": 1,
+        "heading_count": 0,
+        "chapter_count": 0,
+        "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    job = _dummy_job(tmp_path, name="essay.pdf", language="eng")
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
+
+    assert epub_path.is_file()
+    assert is_valid_epub(epub_path)
+
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:language", namespaces=NS) == "en"
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Essay"
+
+        ch1 = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        assert ch1.findtext(".//x:h1", namespaces=NS) == "Essay"
+        assert ch1.findtext(".//x:p", namespaces=NS) == "Gewone tekst zonder hoofdstukaanduiding."
+
+
+def test_generate_job_epub_unicode_and_special_characters(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-unicode")
+    workspace.create()
+
+    text = "Marie & Jan spraken over café's, “geheimen” en de façade van het gebouw — prachtig!"
+    p1 = [_para(1, text)]
+    workspace.save_page_cleaned_paragraphs(1, p1)
+    workspace.save_structure_analysis({
+        "schema_version": 1,
+        "total_pages": 1,
+        "heading_count": 0,
+        "chapter_count": 0,
+        "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    job = _dummy_job(tmp_path, name="special-chars.pdf", language="nld+eng")
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
+
+    assert is_valid_epub(epub_path)
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        ch = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        p = ch.findtext(".//x:p", namespaces=NS)
+        assert "Marie & Jan" in p
+        assert "café's" in p
+        assert "façade" in p
+        assert "— prachtig!" in p
+
+
+def test_generate_job_epub_reuses_existing_valid_file(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-reuse")
+    workspace.create()
+
+    p1 = [_para(1, "Eerste versie.")]
+    workspace.save_page_cleaned_paragraphs(1, p1)
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0, "chapter_count": 0, "chapters": []
+    })
+    workspace.save_page_structure(1, [])
+
+    job = _dummy_job(tmp_path, name="reuse.pdf")
+    first_path = generate_job_epub(job, workspace, total_pages=1)
+    original_mtime = first_path.stat().st_mtime_ns
+    original_bytes = first_path.read_bytes()
+
+    # Call again: should return same file without rewriting
+    second_path = generate_job_epub(job, workspace, total_pages=1)
+    assert second_path == first_path
+    assert second_path.stat().st_mtime_ns == original_mtime
+    assert second_path.read_bytes() == original_bytes
+
+
+def test_is_valid_epub_rejects_corrupted_archives(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    assert not is_valid_epub(tmp_path / "nonexistent.epub")
+
+    empty = tmp_path / "empty.epub"
+    empty.write_bytes(b"")
+    assert not is_valid_epub(empty)
+
+    not_zip = tmp_path / "bad.epub"
+    not_zip.write_bytes(b"This is just plain text, not a zip archive.")
+    assert not is_valid_epub(not_zip)
