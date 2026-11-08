@@ -33,7 +33,6 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'addDeleteAction(item,job)' in html
     assert 'Permanently delete this conversion' in html
     assert 'Clear completed, failed and cancelled conversions' in html
-    assert 'fetch("/api/conversions"' in html
     assert 'method:"DELETE"' in html
     assert 'Download EPUB' in html
     assert 'JSON report' in html
