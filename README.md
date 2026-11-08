@@ -38,7 +38,7 @@ It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are 
 - **History controls:** clear completed or failed results without cancelling queued or running jobs.
 - **Self-hosted:** Docker image for linux/amd64 and linux/arm64.
 - **Optional HTTP Basic Authentication** and health-check endpoint.
-- **PDF-to-EPUB conversion foundation:** a separate background worker performs resumable PDF analysis, OCR, text reconstruction, document structure detection and EPUB 3 generation. The pipeline is backend-only; no conversion upload UI or public conversion API is available yet.
+- **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
 
 ## Which mode should I use?
 
@@ -168,6 +168,22 @@ The EPUB panel contains the following controls:
 
 Images are fitted inside the selected width and height. They are never enlarged.
 
+### PDF-to-EPUB conversion
+
+Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned books. Select one or more PDF files, choose the OCR language and submit. The conversion runs as a background job, so it does not hold the upload request open while OCR and EPUB generation run.
+
+| Language | OCR selection |
+|---|---|
+| Automatic | Dutch + English |
+| Dutch / English | Single-language OCR |
+| Dutch + English | Both language models |
+| French / German | Single-language OCR |
+| French + English | Both language models |
+
+The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF is retained in the conversion workspace until job cleanup; automatic expiry cleanup is not implemented yet.
+
+The generated EPUB currently contains reconstructed text, headings and chapter navigation. Illustrations and images from the original PDF are not yet carried into the EPUB.
+
 ### PDF settings
 
 PDF settings are independent from EPUB settings.
@@ -249,7 +265,7 @@ E-reader mode uses PDFium via pypdfium2 to render pages and ReportLab to assembl
 5. Inkslim verifies that the output is readable and has the same number of pages.
 6. An output that is not smaller than the input is rejected.
 
-## PDF-to-EPUB conversion: development status
+## PDF-to-EPUB conversion
 
 PDF-to-EPUB is being developed as a separate asynchronous pipeline. It is deliberately separate from `/shrink`; the existing EPUB/PDF optimization workflow is not routed through the new worker.
 
@@ -275,7 +291,7 @@ The current implementation foundation includes:
 
 The worker now runs the complete backend conversion path: PDF analysis, native-text extraction and sampled OCR validation, Tesseract OCR where required, line and paragraph reconstruction, conservative dehyphenation, repeated page-furniture removal, chapter/heading detection, document-model assembly and EPUB 3 generation. It stores resumable checkpoints and marks a job complete only after the EPUB has passed runtime structural validation and a JSON quality report has been written. The report contains page diagnostics and aggregate quality metrics, not recognized book text.
 
-The conversion job can now be created, monitored, cancelled and downloaded through the public API. The web interface is not yet connected to this API. The existing `/shrink` endpoint remains separate and unchanged.
+The conversion workflow is available in its own section of the web interface. Select one or more PDFs, choose the OCR language and monitor each background job. Completed jobs provide both an EPUB download and a quality report. The existing `/shrink` endpoint remains separate and unchanged.
 
 ### Conversion quality report
 
@@ -316,11 +332,10 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Connect the web interface to the conversion API; then implement automatic job cleanup and storage quotas.
-2. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
-3. Implement job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
-4. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
-5. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
+1. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
+2. Implement automatic job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
+3. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
+4. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
 Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Images and illustrations from the source PDF are not yet transferred into the generated EPUB; this remains an explicit content-preservation milestone.
 
@@ -457,14 +472,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is exposed through the asynchronous API, but not yet through the web interface.** The backend can analyze PDFs, extract native text, run OCR, reconstruct document structure and generate a structurally validated EPUB. Source-PDF illustrations are not yet embedded in the generated EPUB. Do not treat the current conversion worker as a finished end-user workflow.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Source-PDF illustrations are not yet embedded in the generated EPUB.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The current conversion pipeline is an implementation foundation, not a supported end-user PDF-to-EPUB workflow yet.
+- The PDF-to-EPUB workflow is usable, but source-PDF illustrations are not yet carried into the generated EPUB and automatic cleanup of expired jobs is not implemented.
 
 ## Troubleshooting
 

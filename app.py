@@ -648,6 +648,25 @@ INDEX_HTML = """<!doctype html>
     background:var(--accent); color:var(--accent-text);
     text-decoration:none; font-weight:600;
   }
+  h2 { font-size:1.15rem; margin:0 0 6px; }
+  #conversion-language {
+    width:100%; margin:4px 0 12px; padding:8px; font:inherit; color:var(--text);
+    background:var(--bg); border:1px solid var(--line); border-radius:8px;
+  }
+  .conversion-drop {
+    border:2px dashed var(--line); border-radius:12px; padding:24px 16px;
+    text-align:center; cursor:pointer; transition:background .15s,border-color .15s;
+  }
+  .conversion-drop.over { background:var(--drop); border-color:var(--accent); }
+  .conversion-drop strong { display:block; }
+  .conversion-drop span { color:var(--muted); font-size:.9rem; }
+  .job-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  button.job-button {
+    border:1px solid var(--line); border-radius:8px; padding:7px 11px;
+    background:var(--bg); color:var(--text); font:inherit; cursor:pointer;
+  }
+  button.job-button:disabled { opacity:.5; cursor:not-allowed; }
+  .job-actions a.btn { margin-top:0; }
   .history-header {
     display:flex; justify-content:space-between; align-items:center;
     gap:12px; margin-bottom:8px; font-weight:600;
@@ -732,6 +751,31 @@ INDEX_HTML = """<!doctype html>
     <p class="hint">These settings apply only to PDF files and are independent of EPUB settings.</p>
   </details>
 
+  <section class="card" id="conversion-panel">
+    <h2>Convert PDF to EPUB</h2>
+    <p class="hint">Create a reflowable EPUB with selectable text. Scanned pages are processed with OCR. Illustrations from the source PDF are not included yet.</p>
+    <label for="conversion-language">OCR language</label>
+    <select id="conversion-language">
+      <option value="auto">Automatic (Dutch + English)</option>
+      <option value="nld">Dutch</option>
+      <option value="eng">English</option>
+      <option value="nld+eng">Dutch + English</option>
+      <option value="fra">French</option>
+      <option value="deu">German</option>
+      <option value="fra+eng">French + English</option>
+    </select>
+    <div id="conversion-drop" class="conversion-drop" tabindex="0" role="button" aria-label="Choose PDF files for conversion">
+      <strong>Choose PDF files to convert</strong>
+      <span>or drop them here</span>
+      <input id="conversion-file" type="file" accept=".pdf,application/pdf" multiple hidden>
+    </div>
+    <p class="hint">Conversions run in the background. Keep this page open to follow progress; recent jobs are restored when you return in the same browser.</p>
+    <div id="conversion-results" hidden>
+      <div class="history-header"><span>PDF-to-EPUB jobs</span></div>
+      <ul id="conversion-list"></ul>
+    </div>
+  </section>
+
   <p class="hint">Your original files are never modified. Uploads are processed in temporary folders and deleted afterwards.</p>
 
   <div class="card" id="results" hidden>
@@ -751,6 +795,11 @@ const pdfMode = $("pdf_mode");
 const pdfOptimizeFields = $("pdf-optimize-fields");
 const pdfEreaderFields = $("pdf-ereader-fields");
 const pdfModeHint = $("pdf-mode-hint");
+const conversionDrop = $("conversion-drop");
+const conversionInput = $("conversion-file");
+const conversionList = $("conversion-list");
+const conversionResults = $("conversion-results");
+const CONVERSION_HISTORY_KEY = "inkslim.conversion-jobs.v1";
 const SETTINGS_KEY = "inkslim.preferences.v1";
 
 const PRESETS = {
@@ -855,6 +904,155 @@ fileInput.addEventListener("change",() => {
   addFiles(fileInput.files);
   fileInput.value = "";
 });
+
+function savedConversionJobs() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CONVERSION_HISTORY_KEY) || "[]");
+    return Array.isArray(value) ? value.filter(job => job && typeof job.id === "string") : [];
+  } catch (_) { return []; }
+}
+function saveConversionJobs(jobs) {
+  try { localStorage.setItem(CONVERSION_HISTORY_KEY,JSON.stringify(jobs.slice(-20))); }
+  catch (error) { console.warn("Could not save conversion history:",error); }
+}
+function conversionItem(id,name) {
+  const item = document.createElement("li");
+  item.dataset.jobId = id || "";
+  const title = document.createElement("div");
+  title.className = "name";
+  title.textContent = name;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = "Submitting...";
+  const progress = document.createElement("progress");
+  progress.max = 100;
+  progress.removeAttribute("value");
+  const actions = document.createElement("div");
+  actions.className = "job-actions";
+  item.append(title,meta,progress,actions);
+  conversionList.prepend(item);
+  conversionResults.hidden = false;
+  return item;
+}
+function conversionMeta(item,message,isError=false) {
+  const meta = item.querySelector(".meta");
+  meta.textContent = message;
+  meta.classList.toggle("err",isError);
+}
+function conversionAction(item,label,url) {
+  const link = document.createElement("a");
+  link.className = "btn";
+  link.textContent = label;
+  link.href = url;
+  item.querySelector(".job-actions").appendChild(link);
+}
+function renderConversionJob(item,job) {
+  const progress = item.querySelector("progress");
+  const actions = item.querySelector(".job-actions");
+  actions.replaceChildren();
+  const status = job.status;
+  const details = job.progress || {};
+  if (Number(details.total_pages) > 0) {
+    progress.max = details.total_pages;
+    progress.value = Math.min(details.completed_pages || 0,details.total_pages);
+    const current = details.current_page ? " · page " + details.current_page : "";
+    conversionMeta(item,status.replaceAll("_"," ") + " · " +
+      (details.completed_pages || 0) + "/" + details.total_pages + " pages" + current +
+      (details.message ? " · " + details.message : ""));
+  } else {
+    progress.removeAttribute("value");
+    conversionMeta(item,status.replaceAll("_"," ") +
+      (details.message ? " · " + details.message : ""));
+  }
+  if (status === "completed") {
+    progress.value = progress.max;
+    conversionAction(item,"Download EPUB",job.links.download);
+    conversionAction(item,"Quality report",job.links.report);
+  } else if (status === "failed") {
+    conversionMeta(item,(job.error?.message || "Conversion failed.") +
+      (job.error?.code ? " (" + job.error.code + ")" : ""),true);
+  }
+  return ["completed","failed","cancelled"].includes(status);
+}
+async function refreshConversion(item) {
+  const id = item.dataset.jobId;
+  if (!id) return;
+  try {
+    const response = await fetch("/api/conversions/" + encodeURIComponent(id));
+    if (!response.ok) throw new Error(response.status === 404 ? "Job no longer exists." : "Could not retrieve job status.");
+    const job = await response.json();
+    const finished = renderConversionJob(item,job);
+    const actions = item.querySelector(".job-actions");
+    if (!finished) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "job-button";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click",async () => {
+        cancel.disabled = true;
+        try {
+          const result = await fetch("/api/conversions/" + encodeURIComponent(id),{method:"DELETE"});
+          const updated = await result.json();
+          if (!result.ok && result.status !== 409) throw new Error(updated.error || "Cancellation failed.");
+          renderConversionJob(item,updated);
+          if (!["completed","failed","cancelled"].includes(updated.status)) {
+            conversionMeta(item,"Cancellation requested; stopping after the current page.");
+          }
+        } catch (error) {
+          conversionMeta(item,error.message,true);
+          cancel.disabled = false;
+        }
+      });
+      actions.appendChild(cancel);
+      window.setTimeout(() => refreshConversion(item),2000);
+    }
+  } catch (error) {
+    conversionMeta(item,error.message,true);
+  }
+}
+async function submitConversion(file) {
+  const item = conversionItem("",file.name);
+  const form = new FormData();
+  form.append("file",file);
+  form.append("language",$("conversion-language").value);
+  try {
+    const response = await fetch("/api/conversions",{method:"POST",body:form});
+    const job = await response.json();
+    if (!response.ok) throw new Error(job.error || "Could not create conversion job.");
+    item.dataset.jobId = job.id;
+    const saved = savedConversionJobs().filter(entry => entry.id !== job.id);
+    saved.push({id:job.id,name:file.name});
+    saveConversionJobs(saved);
+    refreshConversion(item);
+  } catch (error) {
+    conversionMeta(item,error.message,true);
+    item.querySelector("progress").remove();
+  }
+}
+function addConversionFiles(files) {
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith(".pdf")) continue;
+    submitConversion(file);
+  }
+}
+conversionDrop.addEventListener("click",() => conversionInput.click());
+conversionDrop.addEventListener("keydown",event => {
+  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); conversionInput.click(); }
+});
+for (const eventName of ["dragenter","dragover"]) conversionDrop.addEventListener(eventName,event => {
+  event.preventDefault(); conversionDrop.classList.add("over");
+});
+for (const eventName of ["dragleave","drop"]) conversionDrop.addEventListener(eventName,event => {
+  event.preventDefault(); conversionDrop.classList.remove("over");
+});
+conversionDrop.addEventListener("drop",event => addConversionFiles(event.dataTransfer.files));
+conversionInput.addEventListener("change",() => {
+  addConversionFiles(conversionInput.files); conversionInput.value = "";
+});
+for (const job of savedConversionJobs()) {
+  const item = conversionItem(job.id,job.name || "Previous PDF conversion");
+  refreshConversion(item);
+}
 
 function fmt(bytes) {
   if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
