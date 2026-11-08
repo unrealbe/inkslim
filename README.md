@@ -117,6 +117,11 @@ The Compose file on your NAS is a local file. Pulling a new image does **not** c
 
 ## Configuration
 
+| Variable | Default | Description |
+|---|---:|---|
+| `JOB_RETENTION_HOURS` | `24` | Retain completed, failed and cancelled jobs for this many hours after completion. |
+| `MAX_CONVERSION_STORAGE_MB` | `5120` | Admission quota for persistent conversion job workspaces; a new upload returns HTTP 507 when usage is over the limit. |
+
 The supplied docker-compose.yml sets the host port mapping to 8125:8080 and configures the following environment variables.
 
 | Variable | Default | Description |
@@ -341,7 +346,7 @@ Heading detection is intentionally conservative: it currently recognizes explici
 
 ### Persistent data
 
-The Compose file mounts the named Docker volume `conversion-data` at `/data/conversion` in both services. It contains the SQLite database and per-job working directories/checkpoints. Do not remove this volume when recreating containers if you want to preserve conversion jobs. Back up the volume using a consistent stopped-container or SQLite-aware backup procedure.
+The Compose file mounts the named Docker volume `conversion-data` at `/data/conversion` in both services. It contains the SQLite database and per-job working directories/checkpoints. Do not remove this volume when recreating containers if you want to preserve conversion jobs. Back up the volume using a consistent stopped-container or SQLite-aware backup procedure.\n\nCompleted, failed and cancelled jobs are automatically removed after `JOB_RETENTION_HOURS` (default 24 hours, measured from completion). Queued and active jobs are never eligible for retention cleanup. `MAX_CONVERSION_STORAGE_MB` (default 5120 MB) is an admission quota for persisted job workspaces: new jobs are rejected with HTTP 507 when current stored workspace usage exceeds the limit. It covers job inputs, checkpoints and outputs, but excludes the SQLite database and temporary upload validation files. This is an admission check, not a hard filesystem quota on additional checkpoint growth during an already-running conversion.
 
 The SQLite database is intended for a local filesystem-backed Docker volume. Do not place it on an NFS or SMB share.
 
@@ -407,7 +412,7 @@ The web application exposes a small API:
 
 The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field accepts `auto` (default), `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`.
 
-- `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**.
+- `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**. A full storage admission quota returns **507** (`STORAGE_QUOTA_EXCEEDED`).
 - `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
 - `DELETE /api/conversions/{id}` requests cancellation. Queued jobs are cancelled immediately; active jobs stop cooperatively between processing pages. A repeated request for a terminal job returns **409**.
 - `GET /api/conversions/{id}/download` and `GET /api/conversions/{id}/report` return **409** until the job is complete. They only serve files located inside that job's output directory; the EPUB is structurally validated again before download.
@@ -447,7 +452,7 @@ Common error responses include 400 for missing or unsupported uploads, 413 for f
 
 - **Self-hosted processing:** the application does not send documents to an Inkslim cloud service.
 - **Synchronous /shrink processing:** uploads and intermediate outputs for the existing optimization endpoint are kept in a temporary directory and removed when processing finishes or fails.
-- **Background conversion jobs:** the separate PDF-to-EPUB worker stores uploaded job inputs, SQLite job records and intermediate checkpoints in the persistent conversion-data Docker volume. This is local to your own deployment, not an Inkslim cloud service. Automatic job cleanup is not implemented yet.
+- **Background conversion jobs:** the separate PDF-to-EPUB worker stores uploaded job inputs, SQLite job records and intermediate checkpoints in the persistent conversion-data Docker volume. This is local to your own deployment, not an Inkslim cloud service. Automatic cleanup removes terminal jobs after the configured retention period.
 - **Optional Basic Authentication:** disabled by default. Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to require credentials.
 - **Health check:** /healthz is intentionally exempt from Basic Authentication so Docker can check container health.
 - **Network exposure:** do not expose the service directly to the public internet without additional protection. Prefer a VPN such as WireGuard or Tailscale. If using a reverse proxy, enable HTTPS and configure its upload-size limit and request timeouts.
@@ -479,7 +484,7 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow is usable, but source-PDF illustrations are not yet carried into the generated EPUB and automatic cleanup of expired jobs is not implemented.
+- The PDF-to-EPUB workflow is usable, but source-PDF illustrations are not yet carried into the generated EPUB and automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 

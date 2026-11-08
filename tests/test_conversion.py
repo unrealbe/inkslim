@@ -291,6 +291,8 @@ def test_config_defaults_and_single_worker_guard(monkeypatch, tmp_path):
     assert config.min_render_dpi == 120
     assert config.max_render_pixels == 50_000_000
     assert config.max_render_dimension == 12_000
+    assert config.job_retention_hours == 24
+    assert config.max_conversion_storage_mb == 5120
 
     monkeypatch.setenv("OCR_WORKERS", "2")
     with pytest.raises(ValueError, match="must remain 1"):
@@ -1168,3 +1170,60 @@ def test_sqlite_schema_migration_failure_rolls_back_completely(tmp_path, monkeyp
     assert version == 0
     assert row == (job_id, "kept.pdf", "queued")
     assert temporary_table is None
+
+def test_expired_cleanup_removes_old_terminal_jobs_but_keeps_active_jobs(store, tmp_path):
+    from datetime import UTC, datetime, timedelta
+    import sqlite3
+
+    completed = make_job(store, tmp_path, "old-completed.pdf")
+    cancelled = make_job(store, tmp_path, "old-cancelled.pdf")
+    active = make_job(store, tmp_path, "active.pdf")
+    store.request_cancel(cancelled.id)
+    store.claim_next_job("cleanup-worker")
+    old = (datetime.now(UTC) - timedelta(hours=30)).isoformat(timespec="seconds")
+    with sqlite3.connect(store.database_path) as connection:
+        connection.execute("UPDATE jobs SET status='completed', completed_at=? WHERE id=?", (old, completed.id))
+        connection.execute("UPDATE jobs SET completed_at=? WHERE id=?", (old, cancelled.id))
+
+    assert store.cleanup_expired_jobs(24) == 2
+    assert store.get_job(completed.id) is None
+    assert store.get_job(cancelled.id) is None
+    assert not store.workspace(completed.id).root.exists()
+    assert store.get_job(active.id) is not None
+    assert store.workspace(active.id).root.exists()
+
+
+def test_cleanup_refuses_symlinked_workspace_without_touching_target(store, tmp_path):
+    from datetime import UTC, datetime, timedelta
+    import sqlite3
+    import shutil
+
+    job = make_job(store, tmp_path, "symlink.pdf")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    shutil.rmtree(store.workspace(job.id).root)
+    store.workspace(job.id).root.symlink_to(outside, target_is_directory=True)
+    old = (datetime.now(UTC) - timedelta(hours=30)).isoformat(timespec="seconds")
+    with sqlite3.connect(store.database_path) as connection:
+        connection.execute("UPDATE jobs SET status='failed', completed_at=? WHERE id=?", (old, job.id))
+
+    with pytest.raises(ValueError, match="Unsafe"):
+        store.cleanup_expired_jobs(24)
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_storage_quota_rejects_new_job_and_preserves_existing_jobs(tmp_path):
+    from conversion.storage import StorageQuotaExceededError
+
+    store = JobStore(tmp_path / "quota.sqlite3", tmp_path / "jobs", max_storage_bytes=32)
+    first_source = tmp_path / "first.pdf"
+    first_source.write_bytes(b"%PDF-1.7")
+    first = store.create_job(first_source, first_source.name)
+    second_source = tmp_path / "second.pdf"
+    second_source.write_bytes(b"%PDF-1.7" * 10)
+
+    with pytest.raises(StorageQuotaExceededError):
+        store.create_job(second_source, second_source.name)
+    assert store.get_job(first.id) is not None

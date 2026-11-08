@@ -545,12 +545,15 @@ class JobWorkspace:
 class JobStore:
     """SQLite-backed queue. Keep its database and job files on local NAS storage."""
 
-    def __init__(self, database_path: Path, jobs_dir: Path, *, max_storage_bytes: int = 5 * 1024**3):
+    def __init__(self, database_path: Path, jobs_dir: Path, *, max_storage_bytes: int = 5 * 1024**3, retention_hours: int = 24):
         self.database_path = Path(database_path)
         self.jobs_dir = Path(jobs_dir)
         if max_storage_bytes < 1:
             raise ValueError('max_storage_bytes must be positive')
         self.max_storage_bytes = max_storage_bytes
+        if retention_hours < 1:
+            raise ValueError('retention_hours must be at least 1')
+        self.retention_hours = retention_hours
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
@@ -695,7 +698,8 @@ class JobStore:
                     continue
         return total
 
-    def cleanup_expired_jobs(self, retention_hours: int = 24) -> int:
+    def cleanup_expired_jobs(self, retention_hours: int | None = None) -> int:
+        retention_hours = retention_hours if retention_hours is not None else self.retention_hours
         if retention_hours < 1:
             raise ValueError("retention_hours must be at least 1")
         cutoff = (datetime.now(UTC) - timedelta(hours=retention_hours)).isoformat(timespec="seconds")

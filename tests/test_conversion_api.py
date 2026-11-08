@@ -128,3 +128,10 @@ def test_completed_job_rejects_paths_outside_workspace(api_client, tmp_path):
 
     assert api_client.get(created["links"]["download"]).status_code == 404
     assert api_client.get(created["links"]["report"]).status_code == 404
+
+def test_api_returns_507_when_storage_admission_quota_is_full(api_client, tmp_path):
+    store = webapp.app.extensions["conversion_store"]
+    store.max_storage_bytes = 1
+    response = submit(api_client, pdf_bytes(tmp_path))
+    assert response.status_code == 507
+    assert response.get_json()["code"] == "STORAGE_QUOTA_EXCEEDED"

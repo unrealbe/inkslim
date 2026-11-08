@@ -22,7 +22,7 @@ def main() -> None:
 
     config = ConversionConfig.from_env()
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    store = JobStore(config.database_path, config.jobs_dir, max_storage_bytes=config.max_conversion_storage_mb * 1024 * 1024)
+    store = JobStore(config.database_path, config.jobs_dir, max_storage_bytes=config.max_conversion_storage_mb * 1024 * 1024, retention_hours=config.job_retention_hours)
     render_limits = PDFRenderLimits(
         dpi=config.pdf_render_dpi,
         minimum_dpi=config.min_render_dpi,
