@@ -11,7 +11,7 @@ from .lines import ReconstructedLine
 # Restrict matching to ordinary hyphen-minus and Unicode hyphen. Do not treat
 # en/em dashes, non-breaking hyphens or mathematical minus signs as word breaks.
 _ENDING = re.compile(r"(?P<fragment>[^\W\d_]{3,})[-\u2010]$", re.UNICODE)
-_STARTING = re.compile(r"^[a-zà-öø-ÿ][^\W\d_]{1,}", re.IGNORECASE | re.UNICODE)
+_STARTING = re.compile(r"^[a-zà-öø-ÿ][^\W\d_]{1,}", re.UNICODE)
 
 
 def detect_visible_hyphenation_candidates(
