@@ -100,6 +100,7 @@ def build_quality_report(
         raise ValueError("generated_at must be timezone-aware")
 
     marginalia = workspace.load_marginalia_analysis()
+    structure = workspace.load_structure_analysis()
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_type": "pdf_page_analysis_and_ocr_quality",
@@ -115,6 +116,10 @@ def build_quality_report(
             "detected_items": len(marginalia["items"]) if marginalia else 0,
             "removed_paragraphs": marginalia["removed_paragraphs"] if marginalia else 0,
             "pages_with_removals": marginalia["pages_with_removals"] if marginalia else [],
+        },
+        "structure": {
+            "heading_count": structure["heading_count"] if structure else 0,
+            "chapter_count": structure["chapter_count"] if structure else 0,
         },
         "summary": {
             "total_pages": total_pages,

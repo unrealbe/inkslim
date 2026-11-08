@@ -18,6 +18,7 @@ from ..paragraphs import reconstruct_paragraphs
 from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
 from ..pagination import detect_repeated_marginalia
+from ..structure import detect_document_structure
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
 from .renderer import PDFRenderLimits, RenderPlanError, render_pdf_page
@@ -229,6 +230,37 @@ class PdfOcrJobProcessor:
                     workspace.save_page_cleaned_paragraphs(page_number, paragraphs)
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after page furniture cleanup")
+
+                # Structure detection is document-wide and runs only after every
+                # cleaned page checkpoint is durable. Annotations never rewrite text.
+                structure = workspace.load_structure_analysis()
+                if structure is None or structure.get("total_pages") != total_pages:
+                    cleaned_pages = {}
+                    for page_number in range(1, total_pages + 1):
+                        paragraphs = workspace.load_page_cleaned_paragraphs(page_number)
+                        if paragraphs is None:
+                            raise JobProcessingError(
+                                "CLEANED_TEXT_CHECKPOINT_MISSING",
+                                f"Cleaned text for page {page_number} is missing.",
+                            )
+                        cleaned_pages[page_number] = paragraphs
+                    structure, page_annotations = detect_document_structure(
+                        cleaned_pages, total_pages=total_pages
+                    )
+                    workspace.save_structure_analysis(structure)
+                else:
+                    page_annotations = {}
+                for page_number in range(1, total_pages + 1):
+                    if store.is_cancel_requested(job.id):
+                        raise JobCancelled(
+                            f"Cancellation requested before structure page {page_number}"
+                        )
+                    if workspace.load_page_structure(page_number) is not None:
+                        continue
+                    annotations = page_annotations.get(page_number, [])
+                    workspace.save_page_structure(page_number, annotations)
+                if store.is_cancel_requested(job.id):
+                    raise JobCancelled("Cancellation requested after document structure detection")
             report_path = build_quality_report(job, workspace, total_pages=total_pages)
             return JobExecutionResult(
                 report_path=report_path,

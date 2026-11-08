@@ -72,6 +72,12 @@ def test_worker_runs_ocr_after_analysis_and_saves_page_result(tmp_path):
     assert marginalia["removed_paragraphs"] == 0
     assert cleaned == dehyphenated[0]
 
+    structure = store.workspace(job.id).load_structure_analysis()
+    page_structure = store.workspace(job.id).load_page_structure(1)
+    assert structure is not None
+    assert structure["chapter_count"] == 0
+    assert page_structure == []
+
 
 def test_ocr_phase_skips_valid_page_result_checkpoint(tmp_path):
     source = make_scanned_pdf(tmp_path / "resume-scan.pdf")

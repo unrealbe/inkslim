@@ -270,9 +270,10 @@ The current implementation foundation includes:
 - A separate dehyphenation checkpoint stage that removes explicit Unicode soft hyphens while preserving ambiguous visible hyphens and compound words.
 - A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
 - Document-level detection of repeated headers, footers and consistently positioned page numbers, with separate cleaned paragraph checkpoints.
+- Conservative heading and chapter-boundary detection with confidence/reason annotations and durable document/page structure checkpoints.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
-The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics, conservative soft-hyphen cleanup and document-level page-furniture removal. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so the selection is currently available to the internal job-creation layer, not yet as a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
+The worker currently advances jobs through PDF analysis, OCR where required, line reconstruction, paragraph reconstruction, language diagnostics, conservative soft-hyphen cleanup, document-level page-furniture removal and conservative heading/chapter annotation. The job model accepts an explicit language selection or `auto`; automatic OCR uses the Dutch and English Tesseract models together, then estimates the dominant page language for the quality report. The conversion upload UI is not available yet, so the selection is currently available to the internal job-creation layer, not yet as a user-facing upload control. It writes a durable JSON quality report to each job workspace. The report summarizes per-page analysis decisions, native-text sampling, OCR result quality, confidence metrics and warnings; it does not copy recognized book text. The report path is recorded on the job. The worker currently reaches an extraction-stage hand-off, but it does not yet assemble a complete EPUB.
 
 The repository also contains a dependency-free EPUB 3 writer. That writer is tested independently, but it is not yet connected to the PDF conversion job.
 
@@ -292,18 +293,18 @@ The repository also contains a dependency-free EPUB 3 writer. That writer is tes
 - Per-job language selection and dominant-language diagnostics.
 - Advisory visible line-end hyphenation detection.
 - Document-level repeated header/footer and page-number detection with cleaned paragraph checkpoints.
+- Conservative chapter/heading detection, with separate structure annotations and confidence/reason metadata.
 - Conservative dehyphenation of explicit Unicode soft hyphens. Visible hyphens are deliberately preserved because they may be genuine compounds or punctuation.
 
 **Next implementation milestones**
 
-1. Detect headings and chapter boundaries.
-2. Connect cleaned paragraphs to the existing EPUB 3 writer and assemble a complete book.
+1. Connect cleaned paragraphs to the existing EPUB 3 writer and assemble a complete book.
 3. Validate generated conversion output with EPUBCheck and add conversion-level quality checks.
 4. Expose conversion jobs through an API, then add upload, progress and download support to the web UI.
 5. Implement job cleanup and storage quotas. JOB_RETENTION_HOURS is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
 6. Add OCR benchmarking and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 
-The milestones are intentionally ordered: text order and structure must be reliable before we generate and expose downloadable EPUB files.
+Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. The milestones are intentionally ordered: text order and structure must be reliable before we generate and expose downloadable EPUB files.
 
 ### Persistent data
 
