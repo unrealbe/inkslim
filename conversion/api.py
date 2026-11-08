@@ -92,7 +92,10 @@ def _completed_file(job: Job, stored_path: str | None, filename: str):
 
 
 def _no_store(response):
-    return _no_store(response)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @conversion_api.get("")
