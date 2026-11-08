@@ -271,7 +271,9 @@ class PdfOcrJobProcessor:
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after document structure detection")
             output_path = generate_job_epub(job, workspace, total_pages=total_pages, store=store)
-            report_path = build_quality_report(job, workspace, total_pages=total_pages)
+            report_path = build_quality_report(
+                job, workspace, total_pages=total_pages, output_path=output_path
+            )
             return JobExecutionResult(
                 output_path=output_path,
                 report_path=report_path,
