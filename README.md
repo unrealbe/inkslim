@@ -404,6 +404,9 @@ The web application exposes a small API:
 | POST | /shrink | Process one uploaded EPUB or PDF. |
 | POST | /api/conversions | Upload a PDF and create an asynchronous PDF-to-EPUB job. |
 | GET | /api/conversions/{id} | Read conversion status and page progress. |
+| GET | /api/conversions | List recent conversion jobs (default 20, maximum 100). |
+| DELETE | /api/conversions/history | Permanently clear completed, failed and cancelled jobs and their files; active jobs are retained. |
+| DELETE | /api/conversions/{id}/history | Permanently delete one terminal job and its files; active jobs return **409**. |
 | DELETE | /api/conversions/{id} | Cancel a queued or active conversion. |
 | GET | /api/conversions/{id}/download | Download the validated EPUB after completion. |
 | GET | /api/conversions/{id}/report | Download the JSON quality report after completion. |
@@ -414,7 +417,10 @@ The asynchronous conversion API accepts PDF uploads as multipart/form-data. The 
 
 - `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**. A full storage admission quota returns **507** (`STORAGE_QUOTA_EXCEEDED`).
 - `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
+- `GET /api/conversions` lists recent jobs (20 by default; `limit` is clamped to 1–100), including the original upload name, short job ID and action links. Responses use no-store cache headers.
 - `DELETE /api/conversions/{id}` requests cancellation. Queued jobs are cancelled immediately; active jobs stop cooperatively between processing pages. A repeated request for a terminal job returns **409**.
+- `DELETE /api/conversions/{id}/history` permanently deletes one completed, failed or cancelled job, including its original PDF, checkpoints, EPUB and report. Queued and active jobs cannot be deleted; cancel them first.
+- `DELETE /api/conversions/history` permanently deletes all terminal jobs while retaining queued and active jobs. These deletion operations cannot be undone.
 - `GET /api/conversions/{id}/download` and `GET /api/conversions/{id}/report` return **409** until the job is complete. They only serve files located inside that job's output directory; the EPUB is structurally validated again before download.
 
 The API reuses the persistent SQLite queue and separate worker service. Upload size is bounded by `MAX_UPLOAD_MB`; PDF page count is bounded by `MAX_PDF_PAGES`. It does not expose filesystem paths or worker internals. Basic Authentication, when enabled, also protects these endpoints.
