@@ -98,7 +98,7 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
     store.claim_next_job("test-worker")
     workspace = store.workspace(job.id)
     output = build_epub(
-        workspace.output_dir / "My-book.epub",
+        workspace.output_dir / f"My-book-{job.id[:8]}.epub",
         EpubMetadata(title="My book", language="en"),
         [Chapter("Chapter 1", [Block("p", "A readable paragraph for the generated EPUB.")])],
     )
