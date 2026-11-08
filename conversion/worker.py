@@ -115,7 +115,10 @@ class ConversionWorker:
         """Recover interrupted jobs once, then poll until the stop event is set."""
         stop_event = stop_event or threading.Event()
         recovered = self.store.recover_interrupted_jobs()
-        self.store.cleanup_expired_jobs()
+        try:
+            self.store.cleanup_expired_jobs()
+        except Exception:
+            logger.exception("Could not clean up expired conversion jobs during startup")
         if recovered:
             logger.info("Requeued %d interrupted conversion job(s)", recovered)
 

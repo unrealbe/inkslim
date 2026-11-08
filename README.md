@@ -338,7 +338,6 @@ This is a focused runtime integrity check, not a replacement for the official EP
 **Next implementation milestones**
 
 1. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
-2. Implement automatic job cleanup and storage quotas. `JOB_RETENTION_HOURS` is configuration for this planned cleanup; it does not currently mean old jobs are automatically deleted.
 3. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 4. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 

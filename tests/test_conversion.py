@@ -1180,6 +1180,7 @@ def test_expired_cleanup_removes_old_terminal_jobs_but_keeps_active_jobs(store, 
     active = make_job(store, tmp_path, "active.pdf")
     store.request_cancel(cancelled.id)
     store.claim_next_job("cleanup-worker")
+    store.claim_next_job("cleanup-worker-2")
     old = (datetime.now(UTC) - timedelta(hours=30)).isoformat(timespec="seconds")
     with sqlite3.connect(store.database_path) as connection:
         connection.execute("UPDATE jobs SET status='completed', completed_at=? WHERE id=?", (old, completed.id))
