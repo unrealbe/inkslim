@@ -142,7 +142,8 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | OCR_TIMEOUT_PAGE | 120 | Maximum Tesseract runtime per page, in seconds. |
 | OCR_WORKERS | 1 | Number of OCR workers. V1 intentionally requires exactly one. |
 | MAX_OCR_PAGES | 0 | Maximum OCR page count; 0 means unlimited. |
-| JOB_RETENTION_HOURS | 24 | Intended retention period for conversion job data; automatic cleanup is not implemented yet.
+| JOB_RETENTION_HOURS | 24 | Retain completed, failed and cancelled jobs for this many hours after completion. |
+| MAX_CONVERSION_STORAGE_MB | 5120 | Admission quota for persistent conversion job workspaces; new uploads return HTTP 507 when full. |
 
 Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to enable login. If either is empty, authentication is disabled.
 
@@ -338,8 +339,8 @@ This is a focused runtime integrity check, not a replacement for the official EP
 **Next implementation milestones**
 
 1. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
-3. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
-4. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
+2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
+3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
 Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Images and illustrations from the source PDF are not yet transferred into the generated EPUB; this remains an explicit content-preservation milestone.
 
