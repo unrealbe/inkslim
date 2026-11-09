@@ -298,14 +298,14 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     job = store.create_job(source, source.name)
     workspace = store.workspace(job.id)
 
-    cover_bytes = b"same extracted cover asset bytes"
+    cover_bytes = b"\\x89PNG\\r\\n\\x1a\\n" + b"same extracted cover asset bytes"
     first_asset = workspace.root / "images/000001-0001.png"
     duplicate_asset = workspace.root / "images/000002-0001.png"
     non_duplicate_asset = workspace.root / "images/000003-0001.png"
     first_asset.parent.mkdir(parents=True, exist_ok=True)
     first_asset.write_bytes(cover_bytes)
     duplicate_asset.write_bytes(cover_bytes)
-    non_duplicate_asset.write_bytes(b"same visual subject, different extracted bytes")
+    non_duplicate_asset.write_bytes(b"\\x89PNG\\r\\n\\x1a\\n" + b"same visual subject, different extracted bytes")
 
     cover = PageImage(
         1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
@@ -351,6 +351,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
             "page_number": 1,
             "image_index": 1,
             "coverage": 1.0,
+            "classification_confidence": 0.78,
         },
         "duplicate_count": 1,
         "matches": [{"page_number": 2, "image_index": 1}],
@@ -371,7 +372,7 @@ def test_duplicate_cover_detection_is_incomplete_when_a_page_checkpoint_is_missi
 
     cover_path = workspace.root / "images/000001-0001.png"
     cover_path.parent.mkdir(parents=True, exist_ok=True)
-    cover_path.write_bytes(b"cover bytes")
+    cover_path.write_bytes(b"\\x89PNG\\r\\n\\x1a\\n" + b"cover bytes")
     workspace.save_page_images(PageImages(1, (
         PageImage(
             1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
