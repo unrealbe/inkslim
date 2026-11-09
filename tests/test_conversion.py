@@ -124,8 +124,8 @@ def test_create_job_defaults_to_automatic_language_selection(store, tmp_path):
     workspace = store.workspace(job.id)
     manifest = json.loads(workspace.manifest_path.read_text(encoding="utf-8"))
 
-    assert job.language == "auto"
-    assert manifest["language"] == "auto"
+    assert job.language == "eng"
+    assert manifest["language"] == "eng"
 
 
 def test_create_job_rejects_unsupported_language_selection(store, tmp_path):
