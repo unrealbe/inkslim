@@ -241,81 +241,29 @@ def embed_pdf_images(
             if not chapter_paths:
                 raise EpubImageEmbeddingError("Generated EPUB has no chapter documents")
 
-            chapter_updates: dict[str, bytes] = {
-                path: source.read(info_by_name[path]) for path in chapter_paths
-            }
-            for path in chapter_paths:
-                chapter_updates[path] = chapter_updates[path].replace(
-                    b"</section>",
-                    b"<!-- inkslim-image-layout:2 -->\\n</section>",
-                    1,
-                )
-            chapter_records = {
-                path: _paragraph_records(data)
-                for path, data in chapter_updates.items()
-            }
-            anchors: dict[str, list[PageImage]] = {}
-            appendix: list[PageImage] = []
-
             for index, (image, _asset_path) in enumerate(assets, start=1):
-                anchor_path = None
-                anchor_id = None
-                for path in chapter_paths:
-                    anchor = _select_anchor(image, chapter_records[path])
-                    if anchor is not None:
-                        anchor_path, anchor_id = path, anchor
-                        break
-                if anchor_path is None or anchor_id is None:
-                    appendix.append(image)
-                else:
-                    anchors.setdefault(anchor_path + "#" + anchor_id, []).append(image)
-
-                image_id = f"pdf-image-{index:04d}"
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
-                    "id": image_id,
+                    "id": f"pdf-image-{index:04d}",
                     "href": image.source_path,
                     "media-type": image.media_type,
                 }))
-
-            # Insert each anchored figure immediately after its source paragraph.
-            for anchor_key, images in anchors.items():
-                chapter_path, anchor_id = anchor_key.split("#", 1)
-                data = chapter_updates[chapter_path]
-                escaped_id = re.escape(anchor_id.encode("ascii"))
-                pattern = re.compile(
-                    rb'(<(?:p|h2|h3)\b(?=[^>]*\bid="' + escaped_id
-                    + rb'")[^>]*>.*?</(?:p|h2|h3)>)',
-                    re.DOTALL,
-                )
-                markup = b"\n" + b"\n".join(_figure_markup(image) for image in images)
-                data, count = pattern.subn(lambda match: match.group(1) + markup, data, count=1)
-                if count != 1:
-                    raise EpubImageEmbeddingError("Could not locate an image's source paragraph in the EPUB")
-                chapter_updates[chapter_path] = data
-
-            if appendix:
-                last_path = chapter_paths[-1]
-                data = chapter_updates[last_path]
-                if _XHTML_END not in data:
-                    raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
-                appendix_markup = (
-                    b"\n<h2>Illustrations</h2>\n"
-                    + b"\n".join(_figure_markup(image) for image in appendix)
-                    + b"\n"
-                )
-                chapter_updates[last_path] = data.replace(
-                    _XHTML_END, appendix_markup + _XHTML_END, 1
-                )
-
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
+
             css_info = info_by_name.get("OEBPS/styles.css")
             css_data = None
             if css_info is not None:
                 css_data = source.read(css_info) + (
-                    b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
-                    b"\n.pdf-illustration img { max-width: 100%; height: auto; }"
-                    b"\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
+                    b"\\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
+                    b"\\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\\n"
                 )
+
+            # Keep only one uncompressed chapter in memory at a time. Images are
+            # assigned as the spine is streamed, and unresolved assets flow into
+            # the final chapter's appendix.
+            pending = list(assets)
+            first_chapter = chapter_paths[0]
+            last_chapter = chapter_paths[-1]
 
             with zipfile.ZipFile(temporary, "w") as target:
                 first = zipfile.ZipInfo("mimetype", date_time=(1980, 1, 1, 0, 0, 0))
@@ -329,21 +277,91 @@ def embed_pdf_images(
                         continue
                     if name == "OEBPS/content.opf":
                         target.writestr(info, opf_bytes)
-                    elif name in chapter_updates:
-                        target.writestr(info, chapter_updates[name])
+                    elif name in chapter_paths:
+                        chapter_bytes = source.read(info)
+                        records = _paragraph_records(chapter_bytes)
+                        anchored: dict[str, list[PageImage]] = {}
+                        remaining: list[tuple[PageImage, Path]] = []
+
+                        for image, asset_path in pending:
+                            anchor = _select_anchor(image, records)
+                            if anchor is None:
+                                remaining.append((image, asset_path))
+                            else:
+                                anchored.setdefault(anchor, []).append(image)
+                        pending = remaining
+
+                        for anchor_id, images in anchored.items():
+                            escaped_id = re.escape(anchor_id.encode("ascii"))
+                            pattern = re.compile(
+                                rb'(<(?:p|h2|h3)\\b(?=[^>]*\\bid="' + escaped_id
+                                + rb'")[^>]*>.*?</(?:p|h2|h3)>)',
+                                re.DOTALL,
+                            )
+                            markup = b"\\n" + b"\\n".join(
+                                _figure_markup(image) for image in images
+                            )
+                            chapter_bytes, count = pattern.subn(
+                                lambda match: match.group(1) + markup,
+                                chapter_bytes,
+                                count=1,
+                            )
+                            if count != 1:
+                                raise EpubImageEmbeddingError(
+                                    "Could not locate an image's source text block in the EPUB"
+                                )
+
+                        if name == first_chapter:
+                            if _XHTML_END not in chapter_bytes:
+                                raise EpubImageEmbeddingError(
+                                    "First EPUB chapter has no content section"
+                                )
+                            chapter_bytes = chapter_bytes.replace(
+                                _XHTML_END,
+                                b"<!-- inkslim-image-layout:2 -->\\n</section>",
+                                1,
+                            )
+
+                        if name == last_chapter and pending:
+                            if _XHTML_END not in chapter_bytes:
+                                raise EpubImageEmbeddingError(
+                                    "Final EPUB chapter has no content section"
+                                )
+                            appendix_markup = (
+                                b"\\n<h2>Illustrations</h2>\\n"
+                                + b"\\n".join(
+                                    _figure_markup(image) for image, _asset_path in pending
+                                )
+                                + b"\\n"
+                            )
+                            chapter_bytes = chapter_bytes.replace(
+                                _XHTML_END, appendix_markup + _XHTML_END, 1
+                            )
+                            pending = []
+
+                        target.writestr(info, chapter_bytes)
                     elif name == "OEBPS/styles.css" and css_data is not None:
                         target.writestr(info, css_data)
                     else:
                         with source.open(info, "r") as input_stream, target.open(
                             info, "w"
                         ) as output_stream:
-                            shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
+                            shutil.copyfileobj(
+                                input_stream, output_stream, length=1024 * 1024
+                            )
+
+                if pending:
+                    raise EpubImageEmbeddingError(
+                        "Some extracted images could not be assigned to an EPUB chapter"
+                    )
 
                 for image, asset_path in assets:
                     with asset_path.open("rb") as image_stream, target.open(
                         "OEBPS/" + image.source_path, "w", force_zip64=True
                     ) as archive_stream:
-                        shutil.copyfileobj(image_stream, archive_stream, length=1024 * 1024)
+                        shutil.copyfileobj(
+                            image_stream, archive_stream, length=1024 * 1024
+                        )
 
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
