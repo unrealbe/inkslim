@@ -287,7 +287,7 @@ The current implementation foundation includes:
 - Native PDF text extraction into the same durable `PageResult` and line-checkpoint format used by OCR pages.
 - PDFium page rendering with configurable DPI, pixel-count and dimension limits.
 - Tesseract OCR using TSV output, including word positions and confidence values.
-- Per-job language selection (`auto`, Dutch, English, Dutch + English, French or German), with per-page dominant-language estimates in the quality report.
+- Explicit per-job OCR language selection (English by default, Dutch, French, German and supported bilingual combinations), with per-page dominant-language estimates in the quality report.
 - Durable per-page OCR result checkpoints, so completed pages can be skipped after a worker restart.
 - A schema-versioned JSON quality report with per-page decisions, OCR confidence, warnings, EPUB output statistics and aggregate content-quality metrics; recognized book text is deliberately excluded.
 - OCR line checkpoints with normalized page geometry, confidence and stable top-to-bottom/left-to-right ordering.
@@ -422,7 +422,7 @@ The web application exposes a small API:
 
 ### PDF-to-EPUB conversion API
 
-The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field defaults to `eng` and accepts `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`. The web interface defaults to English and exposes explicit language choices; it does not offer automatic language selection.
+The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field defaults to `eng` and accepts `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`. Automatic language selection is not supported; choose the OCR language explicitly.
 
 - `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**. A full storage admission quota returns **507** (`STORAGE_QUOTA_EXCEEDED`).
 - `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
