@@ -14,6 +14,7 @@ from typing import Any
 from .models import Job, PageResult, TextSource
 from .language import detect_page_language, ocr_languages_for_selection
 from .pdf.models import PageAnalysis, PageDecision
+from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 
 REPORT_SCHEMA_VERSION = 3
@@ -213,6 +214,15 @@ def build_quality_report(
             ),
             "result": None,
         }
+        recognized_text_for_classification = (
+            "\n".join(block.text for block in result.blocks) if result is not None else ""
+        )
+        page["content_classification"] = classify_page_content(
+            analysis,
+            page_images,
+            recognized_text=recognized_text_for_classification,
+            text_source=result.source.value if result is not None else None,
+        )
         if result is not None:
             recognized_text = "\n".join(block.text for block in result.blocks)
             detected_language = detect_page_language(recognized_text)
