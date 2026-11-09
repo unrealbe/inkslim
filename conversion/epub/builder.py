@@ -92,6 +92,7 @@ def _chapter_xhtml(chapter: Chapter, language: str) -> str:
             if (
                 block.source_page is not None
                 and block.paragraph_index is not None
+                and block.paragraph_index >= 0
                 and block.bbox is not None
             ):
                 bbox = ",".join(f"{value:.6f}" for value in block.bbox)
