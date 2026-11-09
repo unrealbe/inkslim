@@ -84,3 +84,50 @@ def test_no_images_leaves_epub_unchanged(tmp_path):
     before = epub.read_bytes()
     assert embed_pdf_images(epub, workspace, total_pages=1) == 0
     assert epub.read_bytes() == before
+
+
+
+def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from conversion.epub import generator
+    from conversion.worker import JobProcessingError
+
+    workspace = SimpleNamespace(
+        output_dir=tmp_path,
+        load_page_images=lambda _page: None,
+        load_page_cleaned_paragraphs=lambda _page: [],
+        load_structure_analysis=lambda: {},
+        load_page_structure=lambda _page: [],
+        save_document_model=lambda _doc: None,
+    )
+    job = SimpleNamespace(
+        id="12345678-1234-5678-1234-567812345678",
+        input_name="book.pdf",
+        language="auto",
+    )
+    document = SimpleNamespace(
+        metadata=SimpleNamespace(identifier=None),
+        to_epub_chapters=lambda: [],
+    )
+
+    monkeypatch.setattr(generator, "is_valid_epub", lambda _path: False)
+    monkeypatch.setattr(generator, "build_document_model", lambda *args, **kwargs: document)
+
+    def write_text_only_epub(destination, **_kwargs):
+        destination.write_bytes(b"text-only epub")
+
+    def fail_embedding(*_args, **_kwargs):
+        raise OSError("simulated image archive write failure")
+
+    monkeypatch.setattr(generator, "build_epub", write_text_only_epub)
+    monkeypatch.setattr(generator, "embed_pdf_images", fail_embedding)
+
+    with pytest.raises(JobProcessingError) as exc_info:
+        generator.generate_job_epub(job, workspace, total_pages=1)
+
+    destination = tmp_path / "book-12345678.epub"
+    assert exc_info.value.code == "STORAGE_ERROR"
+    assert not destination.exists()
