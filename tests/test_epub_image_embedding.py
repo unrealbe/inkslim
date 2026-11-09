@@ -220,7 +220,7 @@ def test_matching_checkpoint_image_over_limits_is_rejected(tmp_path, width, heig
     # match the checkpoint, so the configured dimension/pixel guards are tested.
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     path.write_bytes(
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", ihdr)
         + chunk(b"IDAT", b"")
         + chunk(b"IEND", b"")
