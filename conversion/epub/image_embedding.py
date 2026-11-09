@@ -10,12 +10,13 @@ import os
 import shutil
 import tempfile
 import zipfile
-
 from pathlib import Path
-
-from PIL import Image, UnidentifiedImageError
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import quoteattr
+
+from PIL import Image
+
+from ..pdf.images import MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS
 
 from ..storage import JobWorkspace
 
@@ -47,17 +48,27 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                     raise OSError("Image asset is outside the job workspace")
                 if image.media_type not in {"image/jpeg", "image/png"}:
                     raise EpubImageEmbeddingError("An extracted PDF image has an unsupported format")
+                expected_format = "JPEG" if image.media_type == "image/jpeg" else "PNG"
                 with Image.open(resolved) as decoded:
-                    expected_format = "JPEG" if image.media_type == "image/jpeg" else "PNG"
                     if decoded.format != expected_format:
                         raise EpubImageEmbeddingError("An extracted PDF image format does not match its metadata")
+                    width, height = decoded.size
+                    if (
+                        (width, height) != (image.width, image.height)
+                        or width < 1 or height < 1
+                        or width * height > MAX_IMAGE_PIXELS
+                        or max(width, height) > MAX_IMAGE_DIMENSION
+                    ):
+                        raise EpubImageEmbeddingError("An extracted PDF image has invalid or excessive dimensions")
                     decoded.verify()
                 # Reopen and force full pixel decoding; verify() alone is not sufficient.
                 with Image.open(resolved) as decoded:
                     decoded.load()
             except EpubImageEmbeddingError:
                 raise
-            except (OSError, RuntimeError, UnidentifiedImageError, Image.DecompressionBombError, SyntaxError, ValueError) as exc:
+            except Exception as exc:
+                # Pillow may raise EOFError, struct/zlib errors or decoder-specific
+                # exceptions for damaged payloads; normalize all decode failures.
                 raise EpubImageEmbeddingError("An extracted PDF image is missing, unsafe, or undecodable") from exc
 
             assets.append((page_number, image.source_path, image.media_type, resolved))
