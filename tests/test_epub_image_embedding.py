@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import zipfile
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
 from PIL import Image
 
@@ -18,41 +17,60 @@ NS = {
 }
 
 
-def test_embeds_extracted_images_and_adds_manifest_and_reading_order_markup(tmp_path):
-    workspace = JobWorkspace(tmp_path / "job")
-    workspace.create()
-    image_path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (80, 60), "red").save(image_path, "PNG")
+def _save_image(workspace, page_number, image_index, colour):
+    path = workspace.page_image_asset_prefix(page_number, image_index).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (80, 60), colour).save(path, "PNG")
+    relative_path = path.relative_to(workspace.root).as_posix()
     workspace.save_page_images(PageImages(
-        page_number=1,
-        images=(PageImage(1, 1, (0.1, 0.1, 0.9, 0.9), 80, 60,
-                          "image/png", "images/000001-0001.png", 0.64),),
+        page_number=page_number,
+        images=(PageImage(
+            page_number, image_index, (0.1, 0.1, 0.9, 0.9), 80, 60,
+            "image/png", relative_path, 0.64,
+        ),),
         warnings=(),
         detected_count=1,
     ))
-    # Keep the fixture's path consistent with the checkpoint.
-    (workspace.root / "images" / "000001-0001.png").write_bytes(image_path.read_bytes())
+    return relative_path
+
+
+def test_embeds_extracted_images_in_source_page_order_with_manifest_and_markup(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+
+    # Save page 2 first to ensure output order comes from source page numbers,
+    # not checkpoint creation order.
+    page_two_path = _save_image(workspace, 2, 1, "blue")
+    page_one_path = _save_image(workspace, 1, 1, "red")
 
     epub = build_epub(
         tmp_path / "book.epub",
         EpubMetadata(title="Test book"),
         [Chapter("Chapter 1", [Block("p", "Readable text.")])],
     )
-    assert embed_pdf_images(epub, workspace, total_pages=1) == 1
-    assert embedded_image_count(epub) == 1
+    assert embed_pdf_images(epub, workspace, total_pages=2) == 2
+    assert embedded_image_count(epub) == 2
     assert is_valid_epub(epub)
 
     with zipfile.ZipFile(epub) as archive:
-        assert "OEBPS/images/000001-0001.png" in archive.namelist()
+        assert f"OEBPS/{page_one_path}" in archive.namelist()
+        assert f"OEBPS/{page_two_path}" in archive.namelist()
         opf = ET.fromstring(archive.read("OEBPS/content.opf"))
         image_items = opf.findall("opf:manifest/opf:item[@media-type='image/png']", NS)
-        assert len(image_items) == 1
+        assert len(image_items) == 2
+
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
-        image = chapter.find(".//x:img", NS)
-        assert image is not None
-        assert image.get("alt") == "Image from source PDF page 1"
-        assert image.get("src") == "images/000001-0001.png"
+        figures = chapter.findall(".//x:figure", NS)
+        assert len(figures) == 2
+        captions = [figure.find("x:figcaption", NS).text for figure in figures]
+        assert captions == ["Source PDF page 1", "Source PDF page 2"]
+        image_sources = [figure.find("x:img", NS).get("src") for figure in figures]
+        assert image_sources == [page_one_path, page_two_path]
+        image_alts = [figure.find("x:img", NS).get("alt") for figure in figures]
+        assert image_alts == [
+            "Image from source PDF page 1",
+            "Image from source PDF page 2",
+        ]
 
 
 def test_no_images_leaves_epub_unchanged(tmp_path):

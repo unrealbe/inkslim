@@ -51,8 +51,7 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                 extension = "png"
             else:
                 raise EpubImageEmbeddingError("An extracted PDF image has an unsupported or invalid format")
-            assets.append((page_number, f"images/pdf-page-{page_number:06d}-{image.image_index:04d}.{extension}",
-                           image.media_type, data))
+            assets.append((page_number, image.source_path, image.media_type, data))
     return assets
 
 
