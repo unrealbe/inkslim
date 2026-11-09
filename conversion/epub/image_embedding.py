@@ -46,9 +46,9 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                 raise EpubImageEmbeddingError("An extracted PDF image asset is missing or unsafe") from exc
 
             valid_signature = (
-                image.media_type == "image/jpeg" and data.startswith(b"\\xff\\xd8\\xff")
+                image.media_type == "image/jpeg" and data.startswith(b"\xff\xd8\xff")
             ) or (
-                image.media_type == "image/png" and data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+                image.media_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n")
             )
             if not valid_signature:
                 raise EpubImageEmbeddingError("An extracted PDF image has an unsupported or invalid format")
