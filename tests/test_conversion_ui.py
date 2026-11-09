@@ -58,3 +58,13 @@ def test_existing_shrink_interface_remains_available():
     assert 'id="epub-settings"' in html
     assert 'id="pdf-settings"' in html
     assert 'xhr.open("POST","shrink")' in html
+
+
+def test_dashboard_stylesheet_is_served():
+    app.AUTH_USER = app.AUTH_PASS = ""
+    response = app.app.test_client().get("/static/dashboard.css")
+    assert response.status_code == 200
+    css = response.get_data(as_text=True)
+    assert ".app-shell" in css
+    assert ".sidebar" in css
+    assert "@media(max-width:760px)" in css
