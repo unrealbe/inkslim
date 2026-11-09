@@ -298,7 +298,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     job = store.create_job(source, source.name)
     workspace = store.workspace(job.id)
 
-    cover_bytes = b"\\x89PNG\\r\\n\\x1a\\n" + b"same extracted cover asset bytes"
+    cover_bytes = b"\x89PNG\r\n\x1a\n" + b"same extracted cover asset bytes"
     first_asset = workspace.root / "images/000001-0001.png"
     duplicate_asset = workspace.root / "images/000002-0001.png"
     non_duplicate_asset = workspace.root / "images/000003-0001.png"
