@@ -592,6 +592,7 @@ The Docker image uses Python 3.12, installs the system tools required by the EPU
     ├── requirements.txt        # Runtime Python dependencies
     ├── requirements-dev.txt    # Test dependencies
     ├── static/
+    │   ├── dashboard.css          # Responsive dark dashboard styles
     │   ├── inkslim-favicon.png
     │   ├── inkslim-icon-192.png
     │   ├── inkslim-icon-512.png
