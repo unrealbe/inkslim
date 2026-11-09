@@ -319,3 +319,19 @@ def test_image_without_bounded_text_gap_stays_in_appendix(tmp_path):
         figure = chapter.index(b'<figure class="pdf-illustration">', appendix)
         image_src = chapter.index(f'src="{relative_path}"'.encode("utf-8"), figure)
         assert chapter.index(b"Only paragraph.") < appendix < figure < image_src
+
+
+
+def test_negative_paragraph_index_does_not_emit_duplicate_source_anchor_ids(tmp_path):
+    epub = build_epub(
+        tmp_path / "missing-index.epub",
+        EpubMetadata(title="Missing paragraph index"),
+        [Chapter("Chapter 1", [
+            Block("p", "First paragraph.", 1, -1, (0.1, 0.1, 0.9, 0.2)),
+            Block("p", "Second paragraph.", 1, -1, (0.1, 0.3, 0.9, 0.4)),
+        ])],
+    )
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        assert b'data-source-page=' not in chapter
+        assert b'id="p-1--1"' not in chapter
