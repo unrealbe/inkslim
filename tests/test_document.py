@@ -395,3 +395,42 @@ def test_document_model_reads_legacy_schema_v1_without_source_geometry():
     assert paragraph.source_page is None
     assert paragraph.paragraph_index is None
     assert paragraph.bbox is None
+
+
+
+def test_document_model_discards_malformed_source_bbox():
+    data = {
+        "schema_version": DOCUMENT_MODEL_VERSION,
+        "metadata": {"title": "Malformed geometry", "language": "en"},
+        "chapters": [{
+            "title": "Chapter 1",
+            "paragraphs": [{
+                "text": "Text remains usable.",
+                "kind": "p",
+                "source_page": 1,
+                "paragraph_index": 1,
+                "bbox": [0.1, None, 0.9, 0.2],
+            }],
+        }],
+    }
+    restored = DocumentModel.from_dict(data)
+    paragraph = restored.chapters[0].paragraphs[0]
+    assert paragraph.text == "Text remains usable."
+    assert paragraph.source_page == 1
+    assert paragraph.paragraph_index == 1
+    assert paragraph.bbox is None
+
+
+def test_workspace_quarantines_document_model_with_unhashable_schema_version(tmp_path):
+    import json
+
+    from conversion.storage import JobWorkspace
+
+    workspace = JobWorkspace(tmp_path / "malformed-schema")
+    workspace.create()
+    workspace.document_model_path.write_text(
+        json.dumps({"schema_version": [], "chapters": []}),
+        encoding="utf-8",
+    )
+    assert workspace.load_document_model() is None
+    assert not workspace.document_model_path.exists()
