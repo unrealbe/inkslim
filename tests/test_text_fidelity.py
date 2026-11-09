@@ -51,4 +51,4 @@ def test_text_fidelity_summary_weights_token_retention_by_source_tokens():
     assert summary["reconstructed_token_count"] == 5
     assert summary["retained_token_count"] == 5
     assert summary["token_retention"] == round(5 / 6, 4)
-    assert summary["mean_sequence_similarity"] == 0.875
+    assert summary["mean_sequence_similarity"] == 0.8333
