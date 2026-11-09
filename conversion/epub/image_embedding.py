@@ -241,8 +241,6 @@ def embed_pdf_images(
             if asset[0].page_number in advert_pages
             and (cover_asset is None or asset[0] != cover_asset[0])
         ]
-    advert_ids = {image.image_index for image, _ in advert_assets}
-    advert_keys = {(image.page_number, image.image_index) for image, _ in advert_assets}
 
     epub_path = Path(epub_path)
     handle, temporary_name = tempfile.mkstemp(
