@@ -301,9 +301,11 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     cover_bytes = b"same extracted cover asset bytes"
     first_asset = workspace.root / "images/000001-0001.png"
     duplicate_asset = workspace.root / "images/000002-0001.png"
+    non_duplicate_asset = workspace.root / "images/000003-0001.png"
     first_asset.parent.mkdir(parents=True, exist_ok=True)
     first_asset.write_bytes(cover_bytes)
     duplicate_asset.write_bytes(cover_bytes)
+    non_duplicate_asset.write_bytes(b"same visual subject, different extracted bytes")
 
     cover = PageImage(
         1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
@@ -315,6 +317,12 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     )
     workspace.save_page_images(PageImages(1, (cover,), detected_count=1))
     workspace.save_page_images(PageImages(2, (duplicate,), detected_count=1))
+    workspace.save_page_images(PageImages(3, (
+        PageImage(
+            3, 1, (0.1, 0.1, 0.9, 0.9), 100, 100,
+            "image/png", "images/000003-0001.png", 0.64,
+        ),
+    ), detected_count=1))
     workspace.save_page_analysis(PageAnalysis(
         page_number=1, width=612, height=792, character_count=0,
         word_count=0, image_count=1, has_native_text=False,
@@ -325,8 +333,13 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
         word_count=0, image_count=1, has_native_text=False,
         native_text_quality=None, decision=PageDecision.EMPTY,
     ))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=3, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
 
-    report_path = build_quality_report(job, workspace, total_pages=2)
+    report_path = build_quality_report(job, workspace, total_pages=3)
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
@@ -346,6 +359,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     }
     assert first_asset.read_bytes() == cover_bytes
     assert duplicate_asset.read_bytes() == cover_bytes
+    assert non_duplicate_asset.read_bytes() != cover_bytes
 
 
 def test_duplicate_cover_detection_is_incomplete_when_a_page_checkpoint_is_missing(tmp_path):
