@@ -125,7 +125,10 @@ def generate_job_epub(
                 destination,
                 workspace,
                 total_pages=total_pages,
-                page_classifications=_page_content_classifications(workspace, total_pages),
+                page_classifications=(
+                    _page_content_classifications(workspace, total_pages)
+                    if expected_images else None
+                ),
             )
         except OSError:
             destination.unlink(missing_ok=True)
