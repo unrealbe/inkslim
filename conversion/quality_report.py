@@ -157,6 +157,7 @@ def _duplicate_cover_statistics(
         "page_number": 1,
         "image_index": cover.image_index,
         "coverage": round(cover.coverage, 4),
+        "classification_confidence": round(confidence, 2),
     }
 
     root = workspace.root.resolve()
@@ -177,10 +178,16 @@ def _duplicate_cover_statistics(
             digest = hashlib.sha256()
             size = 0
             with resolved.open("rb") as stream:
+                header = stream.read(8)
+                if image.media_type == "image/png" and header != b"\\x89PNG\\r\\n\\x1a\\n":
+                    return None
+                if image.media_type == "image/jpeg" and not header.startswith(b"\\xff\\xd8\\xff"):
+                    return None
+                stream.seek(0)
                 while chunk := stream.read(1024 * 1024):
                     digest.update(chunk)
                     size += len(chunk)
-            return digest.hexdigest(), size
+            return (digest.hexdigest(), size) if size > 8 else None
         except (OSError, RuntimeError):
             return None
 
