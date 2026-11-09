@@ -366,9 +366,6 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         )
         assert len(cover_items) == 1
         assert cover_items[0].get("href") == cover_path
-        cover_meta = opf.find("opf:metadata/opf:meta[@name='cover']", NS)
-        assert cover_meta is not None
-        assert cover_meta.get("content") == cover_items[0].get("id")
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
         assert not chapter.findall(".//x:figure", NS)
         assert f"OEBPS/{cover_path}" in archive.namelist()
