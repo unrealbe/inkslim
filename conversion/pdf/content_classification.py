@@ -39,7 +39,7 @@ def classify_page_content(
     page_type = "unknown"
     confidence = 0.35
 
-    if not has_text and image_count == 0:
+    if not has_text and images is not None and images.detected_count == 0:
         page_type, confidence = "empty", 0.95
         reasons.append("No text or embedded images were detected")
     elif (
@@ -60,7 +60,7 @@ def classify_page_content(
         reasons.append("Substantial text was recovered by OCR")
         if image_count:
             reasons.append("The page also contains embedded image objects")
-    elif has_text and image_count and words >= _MIN_BODY_WORDS:
+    elif has_text and image_count and words >= 3:
         page_type, confidence = "mixed", 0.82
         reasons.append("Substantial text and embedded images coexist")
     elif has_text and not image_count:
