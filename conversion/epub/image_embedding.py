@@ -11,8 +11,9 @@ import shutil
 import tempfile
 import zipfile
 
-from PIL import Image, UnidentifiedImageError
 from pathlib import Path
+
+from PIL import Image, UnidentifiedImageError
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
@@ -30,7 +31,7 @@ class EpubImageEmbeddingError(ValueError):
 
 def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, str, str, Path]]:
     root = workspace.root.resolve()
-    assets: list[tuple[int, str, str, bytes]] = []
+    assets: list[tuple[int, str, str, Path]] = []
     for page_number in range(1, total_pages + 1):
         checkpoint = workspace.load_page_images(page_number)
         if checkpoint is None:
@@ -56,7 +57,7 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                     decoded.load()
             except EpubImageEmbeddingError:
                 raise
-            except (OSError, RuntimeError, UnidentifiedImageError, SyntaxError, ValueError) as exc:
+            except (OSError, RuntimeError, UnidentifiedImageError, Image.DecompressionBombError, SyntaxError, ValueError) as exc:
                 raise EpubImageEmbeddingError("An extracted PDF image is missing, unsafe, or undecodable") from exc
 
             assets.append((page_number, image.source_path, image.media_type, resolved))
