@@ -19,7 +19,7 @@ from typing import Any
 from .epub.builder import Block, Chapter, EpubMetadata
 
 
-DOCUMENT_MODEL_VERSION = 1
+DOCUMENT_MODEL_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,16 +28,43 @@ class DocumentParagraph:
 
     text: str
     kind: str = "p"  # "p", "h2" or "h3"
+    source_page: int | None = None
+    paragraph_index: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
     def to_block(self) -> Block:
-        return Block(kind=self.kind, text=self.text)
+        return Block(
+            kind=self.kind,
+            text=self.text,
+            source_page=self.source_page,
+            paragraph_index=self.paragraph_index,
+            bbox=self.bbox,
+        )
 
-    def to_dict(self) -> dict[str, str]:
-        return {"text": self.text, "kind": self.kind}
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "kind": self.kind,
+            "source_page": self.source_page,
+            "paragraph_index": self.paragraph_index,
+            "bbox": list(self.bbox) if self.bbox is not None else None,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DocumentParagraph:
-        return cls(text=str(data.get("text", "")), kind=str(data.get("kind", "p")))
+        bbox_value = data.get("bbox")
+        bbox = tuple(float(value) for value in bbox_value) if (
+            isinstance(bbox_value, (list, tuple)) and len(bbox_value) == 4
+        ) else None
+        source_page = data.get("source_page")
+        paragraph_index = data.get("paragraph_index")
+        return cls(
+            text=str(data.get("text", "")),
+            kind=str(data.get("kind", "p")),
+            source_page=source_page if type(source_page) is int and source_page > 0 else None,
+            paragraph_index=paragraph_index if type(paragraph_index) is int and paragraph_index >= 0 else None,
+            bbox=bbox,
+        )
 
 
 @dataclass(slots=True)
@@ -104,7 +131,7 @@ class DocumentModel:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DocumentModel:
-        if data.get("schema_version") != DOCUMENT_MODEL_VERSION:
+        if data.get("schema_version") not in {1, DOCUMENT_MODEL_VERSION}:
             raise ValueError("Unsupported DocumentModel schema version")
         meta = data.get("metadata", {})
         metadata = EpubMetadata(
@@ -119,6 +146,20 @@ class DocumentModel:
             for ch in data.get("chapters", [])
         ]
         return cls(metadata=metadata, chapters=chapters)
+
+
+def _paragraph_bbox(paragraph: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    value = paragraph.get("bbox")
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        bbox = tuple(float(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+    x0, y0, x1, y1 = bbox
+    if not (0 <= x0 <= x1 <= 1 and 0 <= y0 <= y1 <= 1):
+        return None
+    return bbox
 
 
 def _paragraph_text(paragraph: dict[str, Any]) -> str:
@@ -231,9 +272,15 @@ def build_document_model(
             annotation = annotation_lookup.get(key)
             if annotation is not None and not annotation.get("chapter_start", False):
                 kind = _heading_kind(annotation)
-                block = DocumentParagraph(text=text, kind=kind)
+                block = DocumentParagraph(
+                    text=text, kind=kind, source_page=page_number,
+                    paragraph_index=p_index, bbox=_paragraph_bbox(paragraph),
+                )
             else:
-                block = DocumentParagraph(text=text, kind="p")
+                block = DocumentParagraph(
+                    text=text, kind="p", source_page=page_number,
+                    paragraph_index=p_index, bbox=_paragraph_bbox(paragraph),
+                )
 
             # If no chapter has been started yet, create a fallback.
             if current_chapter is None:
