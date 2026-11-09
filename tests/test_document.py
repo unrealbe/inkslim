@@ -107,6 +107,9 @@ def test_build_document_model_with_explicit_chapters():
     assert len(ch1.paragraphs) == 4
     assert ch1.paragraphs[0].text == "This is the first sentence of chapter one."
     assert ch1.paragraphs[0].kind == "p"
+    assert ch1.paragraphs[0].source_page == 1
+    assert ch1.paragraphs[0].paragraph_index == 2
+    assert ch1.paragraphs[0].bbox == (0.1, 0.1, 0.9, 0.2)
     assert ch1.paragraphs[1].text == "SECTION 1.1"
     assert ch1.paragraphs[1].kind == "h2"
     assert ch1.paragraphs[2].text == "More content under section."
@@ -258,7 +261,10 @@ def test_document_model_dict_roundtrip():
             DocumentChapter(
                 title="Hoofdstuk 1",
                 paragraphs=[
-                    DocumentParagraph(text="Alinea 1", kind="p"),
+                    DocumentParagraph(
+                        text="Alinea 1", kind="p", source_page=3,
+                        paragraph_index=7, bbox=(0.1, 0.2, 0.8, 0.3),
+                    ),
                     DocumentParagraph(text="Kopje", kind="h2"),
                 ],
             )
@@ -279,6 +285,9 @@ def test_document_model_dict_roundtrip():
     assert len(restored.chapters[0].paragraphs) == 2
     assert restored.chapters[0].paragraphs[0].text == "Alinea 1"
     assert restored.chapters[0].paragraphs[0].kind == "p"
+    assert restored.chapters[0].paragraphs[0].source_page == 3
+    assert restored.chapters[0].paragraphs[0].paragraph_index == 7
+    assert restored.chapters[0].paragraphs[0].bbox == (0.1, 0.2, 0.8, 0.3)
     assert restored.chapters[0].paragraphs[1].text == "Kopje"
     assert restored.chapters[0].paragraphs[1].kind == "h2"
 
@@ -368,3 +377,60 @@ def test_structure_recovery_after_partial_checkpoint_interruption(tmp_path):
     assert doc.chapters[0].title == "CHAPTER 1"
     assert doc.chapters[1].title == "CHAPTER 2"
 
+
+
+
+def test_document_model_reads_legacy_schema_v1_without_source_geometry():
+    legacy = {
+        "schema_version": 1,
+        "metadata": {"title": "Legacy", "language": "en"},
+        "chapters": [{
+            "title": "Chapter 1",
+            "paragraphs": [{"text": "Legacy paragraph", "kind": "p"}],
+        }],
+    }
+    restored = DocumentModel.from_dict(legacy)
+    paragraph = restored.chapters[0].paragraphs[0]
+    assert paragraph.text == "Legacy paragraph"
+    assert paragraph.source_page is None
+    assert paragraph.paragraph_index is None
+    assert paragraph.bbox is None
+
+
+
+def test_document_model_discards_malformed_source_bbox():
+    data = {
+        "schema_version": DOCUMENT_MODEL_VERSION,
+        "metadata": {"title": "Malformed geometry", "language": "en"},
+        "chapters": [{
+            "title": "Chapter 1",
+            "paragraphs": [{
+                "text": "Text remains usable.",
+                "kind": "p",
+                "source_page": 1,
+                "paragraph_index": 1,
+                "bbox": [0.1, None, 0.9, 0.2],
+            }],
+        }],
+    }
+    restored = DocumentModel.from_dict(data)
+    paragraph = restored.chapters[0].paragraphs[0]
+    assert paragraph.text == "Text remains usable."
+    assert paragraph.source_page == 1
+    assert paragraph.paragraph_index == 1
+    assert paragraph.bbox is None
+
+
+def test_workspace_quarantines_document_model_with_unhashable_schema_version(tmp_path):
+    import json
+
+    from conversion.storage import JobWorkspace
+
+    workspace = JobWorkspace(tmp_path / "malformed-schema")
+    workspace.create()
+    workspace.document_model_path.write_text(
+        json.dumps({"schema_version": [], "chapters": []}),
+        encoding="utf-8",
+    )
+    assert workspace.load_document_model() is None
+    assert not workspace.document_model_path.exists()
