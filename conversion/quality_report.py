@@ -17,7 +17,7 @@ from .pdf.models import PageAnalysis, PageDecision
 from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 
-REPORT_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 4
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
