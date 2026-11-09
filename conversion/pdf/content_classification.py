@@ -12,9 +12,9 @@ from .models import PageAnalysis, PageDecision
 from .images import PageImages
 
 _ADVERT_TERMS = re.compile(
-    r"\\b(?:newsletter|subscribe|subscription|sign up|follow us|"
+    r"\b(?:newsletter|subscribe|subscription|sign up|follow us|"
     r"visit our|www\\.|http[s]?://|buy now|order now|discover more|"
-    r"read more|available now|advertisement)\\b",
+    r"read more|available now|advertisement)\b",
     re.IGNORECASE,
 )
 _MIN_BODY_WORDS = 20
@@ -28,7 +28,7 @@ def classify_page_content(
     text_source: str | None = None,
 ) -> dict[str, Any]:
     """Return a conservative page-type estimate with confidence and evidence."""
-    words = len(re.findall(r"[^\\W_]+", recognized_text, re.UNICODE))
+    words = len(re.findall(r"[^\W_]+", recognized_text, re.UNICODE))
     if words == 0:
         words = analysis.word_count
     has_text = words > 0 or analysis.has_native_text
