@@ -20,7 +20,11 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'JSON report' in html
     assert 'id="conversion-drop"' not in html
     assert 'id="conversion-file"' not in html
-    assert 'value="auto"' in html
+    assert 'value="auto"' not in html
+    assert 'value="eng" selected' in html
+    assert '/static/dashboard.css' in html
+    assert 'class="sidebar"' in html
+    assert 'Your e-book workspace' in html
     assert 'value="nld"' in html
     assert 'value="eng"' in html
     assert 'value="fra"' in html
