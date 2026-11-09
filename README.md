@@ -343,7 +343,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Improve semantic image selection using page classifications. High-confidence cover candidates are marked in EPUB metadata and advertisement-candidate images are retained in a separate section. Exact duplicate-cover detection/removal remains future work.
+1. Add exact duplicate-cover detection/removal; semantic cover metadata and advertisement separation are implemented.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
