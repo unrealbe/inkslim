@@ -146,7 +146,7 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
                     '</figure>'
                 )
 
-            insertion = ("\\n" + "\\n".join(figure_markup) + "\\n").encode("utf-8")
+            insertion = ("\n" + "\n".join(figure_markup) + "\n").encode("utf-8")
             chapter_bytes = chapter_bytes.replace(_XHTML_END, insertion + _XHTML_END, 1)
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
 
@@ -154,9 +154,9 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
             css_data = None
             if css_info is not None:
                 css_data = source.read(css_info) + (
-                    b"\\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
-                    b"\\n.pdf-illustration img { max-width: 100%; height: auto; }"
-                    b"\\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\\n"
+                    b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
+                    b"\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
                 )
 
             with zipfile.ZipFile(temporary, "w") as target:
