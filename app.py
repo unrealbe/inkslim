@@ -1094,7 +1094,9 @@ function showQualityReport(url) {
           ? "No embedded images were detected in the PDF."
           : imageStats.status === "epub_unreadable"
             ? "The generated EPUB could not be inspected for embedded images."
-            : "Image extraction status unavailable.";
+            : imageStats.status === "incomplete"
+              ? "Image detection or extraction was incomplete; some source images may be missing."
+              : "Image extraction status unavailable.";
     panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
     if (imageStats.detection_complete === false) {
       const imageNote = document.createElement("p");

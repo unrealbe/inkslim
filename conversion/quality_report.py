@@ -253,7 +253,9 @@ def build_quality_report(
                 )
                 image_stats["status"] = (
                     "embedded" if embedded_assets else
-                    "not_yet_embedded" if image_stats["extracted_count"] else "no_images"
+                    "not_yet_embedded" if image_stats["extracted_count"] else
+                    "no_images" if image_stats["detection_complete"] and image_stats["detected_count"] == 0
+                    else "incomplete"
                 )
         except (OSError, zipfile.BadZipFile):
             image_stats["status"] = "epub_unreadable"
