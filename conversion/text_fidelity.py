@@ -7,8 +7,8 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
-_TOKEN_RE = re.compile(r"[^\\W_]+(?:['’\\-][^\\W_]+)*", re.UNICODE)
-_HYPHENATED_LINE_BREAK_RE = re.compile(r"(?<=\\w)[-\\u00ad]\\s*\\n\\s*(?=\\w)", re.UNICODE)
+_TOKEN_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
+_HYPHENATED_LINE_BREAK_RE = re.compile(r"(?<=\w)[-\u00ad]\s*\n\s*(?=\w)", re.UNICODE)
 
 
 def _tokens(text: str) -> list[str]:
