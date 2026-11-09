@@ -94,81 +94,101 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
         return 0
 
     epub_path = Path(epub_path)
-    with zipfile.ZipFile(epub_path, "r") as source:
-        entries = {info.filename: (info, source.read(info.filename)) for info in source.infolist()}
-    if "OEBPS/content.opf" not in entries:
-        raise EpubImageEmbeddingError("Generated EPUB has no package document")
-
-    opf_root = ET.fromstring(entries["OEBPS/content.opf"][1])
-    manifest = opf_root.find(f"{{{_OPF_NS}}}manifest")
-    spine = opf_root.find(f"{{{_OPF_NS}}}spine")
-    if manifest is None or spine is None:
-        raise EpubImageEmbeddingError("Generated EPUB has an invalid package manifest or spine")
-
-    item_by_id = {item.get("id"): item for item in manifest.findall(f"{{{_OPF_NS}}}item")}
-    spine_refs = spine.findall(f"{{{_OPF_NS}}}itemref")
-    last_ref = spine_refs[-1].get("idref") if spine_refs else None
-    last_item = item_by_id.get(last_ref)
-    if last_item is None:
-        raise EpubImageEmbeddingError("Generated EPUB has no final reading-order document")
-    chapter_path = "OEBPS/" + last_item.get("href", "")
-    if chapter_path not in entries:
-        raise EpubImageEmbeddingError("Final EPUB chapter is missing")
-
-    chapter_bytes = entries[chapter_path][1]
-    if _XHTML_END not in chapter_bytes:
-        raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
-
-    figure_markup: list[str] = ['<h2>Illustrations</h2>']
-    image_entries: list[tuple[str, Path]] = []
-    for index, (page_number, href, media_type, asset_path) in enumerate(assets, start=1):
-        image_id = f"pdf-image-{index:04d}"
-        manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
-            "id": image_id,
-            "href": href,
-            "media-type": media_type,
-        }))
-        image_entries.append(("OEBPS/" + href, asset_path))
-        alt = f"Image from source PDF page {page_number}"
-        figure_markup.append(
-            '<figure class="pdf-illustration">'
-            f'<img src={quoteattr(href)} alt={quoteattr(alt)}/>'
-            f'<figcaption>Source PDF page {page_number}</figcaption>'
-            '</figure>'
-        )
-
-    insertion = ("\n" + "\n".join(figure_markup) + "\n").encode("utf-8")
-    chapter_bytes = chapter_bytes.replace(_XHTML_END, insertion + _XHTML_END, 1)
-    entries[chapter_path] = (entries[chapter_path][0], chapter_bytes)
-
-    opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
-    entries["OEBPS/content.opf"] = (entries["OEBPS/content.opf"][0], opf_bytes)
-
-    css_info, css_data = entries.get("OEBPS/styles.css", (None, b""))
-    if css_info is not None:
-        css_data += b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }\n.pdf-illustration img { max-width: 100%; height: auto; }\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
-        entries["OEBPS/styles.css"] = (css_info, css_data)
-
     handle, temporary_name = tempfile.mkstemp(
         dir=epub_path.parent, prefix=f".{epub_path.name}.", suffix=".tmp"
     )
     os.close(handle)
     temporary = Path(temporary_name)
     try:
-        with zipfile.ZipFile(temporary, "w") as target:
-            first = zipfile.ZipInfo("mimetype", date_time=(1980, 1, 1, 0, 0, 0))
-            first.compress_type = zipfile.ZIP_STORED
-            first.external_attr = 0o644 << 16
-            target.writestr(first, entries["mimetype"][1])
-            for name, (info, data) in entries.items():
-                if name == "mimetype":
-                    continue
-                target.writestr(name, data, compress_type=info.compress_type)
-            for name, asset_path in image_entries:
-                with asset_path.open("rb") as image_stream, target.open(
-                    name, "w", force_zip64=True
-                ) as archive_stream:
-                    shutil.copyfileobj(image_stream, archive_stream, length=1024 * 1024)
+        with zipfile.ZipFile(epub_path, "r") as source:
+            infos = source.infolist()
+            info_by_name = {info.filename: info for info in infos}
+            if "OEBPS/content.opf" not in info_by_name:
+                raise EpubImageEmbeddingError("Generated EPUB has no package document")
+
+            opf_info = info_by_name["OEBPS/content.opf"]
+            opf_root = ET.fromstring(source.read(opf_info))
+            manifest = opf_root.find(f"{{{_OPF_NS}}}manifest")
+            spine = opf_root.find(f"{{{_OPF_NS}}}spine")
+            if manifest is None or spine is None:
+                raise EpubImageEmbeddingError("Generated EPUB has an invalid package manifest or spine")
+
+            item_by_id = {item.get("id"): item for item in manifest.findall(f"{{{_OPF_NS}}}item")}
+            spine_refs = spine.findall(f"{{{_OPF_NS}}}itemref")
+            last_ref = spine_refs[-1].get("idref") if spine_refs else None
+            last_item = item_by_id.get(last_ref)
+            if last_item is None:
+                raise EpubImageEmbeddingError("Generated EPUB has no final reading-order document")
+            chapter_path = "OEBPS/" + last_item.get("href", "")
+            chapter_info = info_by_name.get(chapter_path)
+            if chapter_info is None:
+                raise EpubImageEmbeddingError("Final EPUB chapter is missing")
+
+            chapter_bytes = source.read(chapter_info)
+            if _XHTML_END not in chapter_bytes:
+                raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
+
+            figure_markup: list[str] = ['<h2>Illustrations</h2>']
+            image_entries: list[tuple[str, Path]] = []
+            for index, (page_number, href, media_type, asset_path) in enumerate(assets, start=1):
+                image_id = f"pdf-image-{index:04d}"
+                manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
+                    "id": image_id,
+                    "href": href,
+                    "media-type": media_type,
+                }))
+                image_entries.append(("OEBPS/" + href, asset_path))
+                alt = f"Image from source PDF page {page_number}"
+                figure_markup.append(
+                    '<figure class="pdf-illustration">'
+                    f'<img src={quoteattr(href)} alt={quoteattr(alt)}/>'
+                    f'<figcaption>Source PDF page {page_number}</figcaption>'
+                    '</figure>'
+                )
+
+            insertion = ("\\n" + "\\n".join(figure_markup) + "\\n").encode("utf-8")
+            chapter_bytes = chapter_bytes.replace(_XHTML_END, insertion + _XHTML_END, 1)
+            opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
+
+            css_info = info_by_name.get("OEBPS/styles.css")
+            css_data = None
+            if css_info is not None:
+                css_data = source.read(css_info) + (
+                    b"\\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
+                    b"\\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\\n"
+                )
+
+            with zipfile.ZipFile(temporary, "w") as target:
+                first = zipfile.ZipInfo("mimetype", date_time=(1980, 1, 1, 0, 0, 0))
+                first.compress_type = zipfile.ZIP_STORED
+                first.external_attr = 0o644 << 16
+                target.writestr(first, source.read("mimetype"))
+
+                for info in infos:
+                    name = info.filename
+                    if name == "mimetype":
+                        continue
+                    if name == "OEBPS/content.opf":
+                        target.writestr(info, opf_bytes)
+                    elif name == chapter_path:
+                        target.writestr(info, chapter_bytes)
+                    elif name == "OEBPS/styles.css" and css_data is not None:
+                        target.writestr(info, css_data)
+                    else:
+                        # Copy unchanged members incrementally; do not retain the
+                        # whole EPUB's uncompressed payloads in worker memory.
+                        with source.open(info, "r") as input_stream, target.open(
+                            info, "w", force_zip64=True
+                        ) as output_stream:
+                            shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
+
+                for name, asset_path in image_entries:
+                    with asset_path.open("rb") as image_stream, target.open(
+                        name, "w", force_zip64=True
+                    ) as archive_stream:
+                        shutil.copyfileobj(image_stream, archive_stream, length=1024 * 1024)
+
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary, epub_path)
