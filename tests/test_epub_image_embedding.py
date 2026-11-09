@@ -193,3 +193,52 @@ def test_image_dimensions_must_match_checkpoint_and_limits(tmp_path):
     )
     with pytest.raises(EpubImageEmbeddingError, match="dimensions"):
         embed_pdf_images(epub, workspace, total_pages=1)
+
+
+@pytest.mark.parametrize("width,height", [(12001, 1), (7100, 7100)])
+def test_matching_checkpoint_image_over_limits_is_rejected(tmp_path, width, height):
+    import binascii
+    import struct
+
+    import pytest
+
+    from conversion.epub.image_embedding import EpubImageEmbeddingError
+
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # A tiny PNG container with oversized IHDR dimensions. The dimensions
+    # match the checkpoint, so the configured dimension/pixel guards are tested.
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(
+        b"\\x89PNG\\r\\n\\x1a\\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", b"")
+        + chunk(b"IEND", b"")
+    )
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), width, height,
+            "image/png", relative_path, 0.64,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "book.epub",
+        EpubMetadata(title="Oversized image"),
+        [Chapter("Chapter 1", [Block("p", "Readable text.")])],
+    )
+    with pytest.raises(EpubImageEmbeddingError, match="dimensions"):
+        embed_pdf_images(epub, workspace, total_pages=1)
