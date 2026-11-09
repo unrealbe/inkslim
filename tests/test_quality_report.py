@@ -94,6 +94,8 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["summary"]["mean_ocr_confidence"] == 96.0
     assert report["pages"][0]["native_ocr_similarity"] == 0.934
     assert report["pages"][2]["result"] is None
+    assert report["pages"][2]["content_classification"]["type"] == "unknown"
+    assert report["summary"]["page_content_types"] == {"text": 2, "unknown": 1}
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
 
