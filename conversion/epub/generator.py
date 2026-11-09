@@ -50,7 +50,7 @@ def _page_content_classifications(workspace: JobWorkspace, total_pages: int) -> 
         result = workspace.load_page_result(page_number)
         images = workspace.load_page_images(page_number)
         recognized_text = (
-            "\\n".join(block.text for block in result.blocks)
+            "\n".join(block.text for block in result.blocks)
             if result is not None else ""
         )
         classifications[page_number] = classify_page_content(
