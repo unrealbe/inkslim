@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from .pdf.models import PageAnalysis, PageDecision
 from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 
-REPORT_SCHEMA_VERSION = 4
+REPORT_SCHEMA_VERSION = 5
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -113,6 +114,106 @@ def _image_statistics(workspace: JobWorkspace, total_pages: int) -> dict[str, An
         "warnings": warnings,
     }
 
+
+def _duplicate_cover_statistics(
+    workspace: JobWorkspace,
+    total_pages: int,
+    classifications: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    """Find later images that are byte-identical to a confident first-page cover.
+
+    This is deliberately diagnostic only: it never removes or rewrites an asset.
+    SHA-256 is calculated over the original extracted file bytes, not a rendered
+    or normalized image, so visually similar encodings are not called exact.
+    """
+    result: dict[str, Any] = {
+        "status": "not_evaluated",
+        "method": "sha256_exact_file_bytes",
+        "cover_candidate": None,
+        "duplicate_count": 0,
+        "matches": [],
+        "removed_count": 0,
+        "automatic_removal_enabled": False,
+    }
+    classification = classifications.get(1, {})
+    try:
+        confidence = float(classification.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if classification.get("type") != "cover_candidate" or confidence < 0.75:
+        return result
+
+    first_checkpoint = workspace.load_page_images(1)
+    if first_checkpoint is None or first_checkpoint.detected_count is None:
+        result["status"] = "incomplete"
+        return result
+    cover_candidates = [
+        image for image in first_checkpoint.images if image.coverage >= 0.45
+    ]
+    if not cover_candidates:
+        return result
+    cover = max(cover_candidates, key=lambda image: image.coverage)
+    result["cover_candidate"] = {
+        "page_number": 1,
+        "image_index": cover.image_index,
+        "coverage": round(cover.coverage, 4),
+    }
+
+    root = workspace.root.resolve()
+
+    def exact_digest(image: Any) -> tuple[str, int] | None:
+        relative = Path(image.source_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None
+        asset = workspace.root / relative
+        try:
+            resolved = asset.resolve(strict=True)
+            if (
+                not resolved.is_relative_to(root)
+                or asset.is_symlink()
+                or not resolved.is_file()
+            ):
+                return None
+            digest = hashlib.sha256()
+            size = 0
+            with resolved.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+                    size += len(chunk)
+            return digest.hexdigest(), size
+        except (OSError, RuntimeError):
+            return None
+
+    cover_digest = exact_digest(cover)
+    if cover_digest is None:
+        result["status"] = "incomplete"
+        return result
+
+    complete = first_checkpoint.detected_count == len(first_checkpoint.images)
+    matches: list[dict[str, int]] = []
+    for page_number in range(2, total_pages + 1):
+        checkpoint = workspace.load_page_images(page_number)
+        if checkpoint is None or checkpoint.detected_count is None:
+            complete = False
+            continue
+        if checkpoint.detected_count != len(checkpoint.images):
+            complete = False
+        for image in checkpoint.images:
+            image_digest = exact_digest(image)
+            if image_digest is None:
+                complete = False
+                continue
+            if image_digest == cover_digest:
+                matches.append({
+                    "page_number": page_number,
+                    "image_index": image.image_index,
+                })
+
+    result["status"] = "complete" if complete else "incomplete"
+    result["matches"] = matches
+    result["duplicate_count"] = len(matches)
+    return result
+
 def build_quality_report(
     job: Job,
     workspace: JobWorkspace,
@@ -126,6 +227,7 @@ def build_quality_report(
         raise ValueError("total_pages must be at least 1")
 
     pages: list[dict[str, Any]] = []
+    content_classifications: dict[int, dict[str, Any]] = {}
     decisions: Counter[str] = Counter()
     content_types: Counter[str] = Counter()
     sources: Counter[str] = Counter()
@@ -224,6 +326,7 @@ def build_quality_report(
             recognized_text=recognized_text_for_classification,
             text_source=result.source.value if result is not None else None,
         )
+        content_classifications[page_number] = page["content_classification"]
         content_types[page["content_classification"]["type"]] += 1
         if result is not None:
             recognized_text = "\n".join(block.text for block in result.blocks)
@@ -247,6 +350,9 @@ def build_quality_report(
     structure = workspace.load_structure_analysis()
     content_stats = _document_statistics(workspace)
     image_stats = _image_statistics(workspace, total_pages)
+    image_stats["duplicate_cover_detection"] = _duplicate_cover_statistics(
+        workspace, total_pages, content_classifications
+    )
     source_path = Path(job.input_path)
     source_size = source_path.stat().st_size if source_path.is_file() else None
     output = Path(output_path) if output_path is not None else None
@@ -362,3 +468,97 @@ def build_quality_report(
     destination = workspace.output_dir / "quality-report.json"
     workspace._atomic_json(destination, report)
     return destination
+
+
+def test_quality_report_detects_only_byte_identical_cover_images_without_removing_them(tmp_path):
+    source = tmp_path / "duplicate-cover.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    cover_bytes = b"same extracted cover asset bytes"
+    first_asset = workspace.root / "images/000001-0001.png"
+    duplicate_asset = workspace.root / "images/000002-0001.png"
+    first_asset.parent.mkdir(parents=True, exist_ok=True)
+    first_asset.write_bytes(cover_bytes)
+    duplicate_asset.write_bytes(cover_bytes)
+
+    cover = PageImage(
+        1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
+        "image/png", "images/000001-0001.png", 1.0,
+    )
+    duplicate = PageImage(
+        2, 1, (0.1, 0.1, 0.9, 0.9), 100, 100,
+        "image/png", "images/000002-0001.png", 0.64,
+    )
+    workspace.save_page_images(PageImages(1, (cover,), detected_count=1))
+    workspace.save_page_images(PageImages(2, (duplicate,), detected_count=1))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=1, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=2, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+
+    report_path = build_quality_report(job, workspace, total_pages=2)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    duplicate_report = report["images"]["duplicate_cover_detection"]
+
+    assert report["schema_version"] == 5
+    assert duplicate_report == {
+        "status": "complete",
+        "method": "sha256_exact_file_bytes",
+        "cover_candidate": {
+            "page_number": 1,
+            "image_index": 1,
+            "coverage": 1.0,
+        },
+        "duplicate_count": 1,
+        "matches": [{"page_number": 2, "image_index": 1}],
+        "removed_count": 0,
+        "automatic_removal_enabled": False,
+    }
+    assert first_asset.read_bytes() == cover_bytes
+    assert duplicate_asset.read_bytes() == cover_bytes
+
+
+def test_duplicate_cover_detection_is_incomplete_when_a_page_checkpoint_is_missing(tmp_path):
+    source = tmp_path / "partial-cover.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    cover_path = workspace.root / "images/000001-0001.png"
+    cover_path.parent.mkdir(parents=True, exist_ok=True)
+    cover_path.write_bytes(b"cover bytes")
+    workspace.save_page_images(PageImages(1, (
+        PageImage(
+            1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
+            "image/png", "images/000001-0001.png", 1.0,
+        ),
+    ), detected_count=1))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=1, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=2, width=612, height=792, character_count=0,
+        word_count=0, image_count=0, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+
+    report = json.loads(build_quality_report(
+        job, workspace, total_pages=2
+    ).read_text(encoding="utf-8"))
+    duplicate_report = report["images"]["duplicate_cover_detection"]
+    assert duplicate_report["status"] == "incomplete"
+    assert duplicate_report["duplicate_count"] == 0
+    assert duplicate_report["removed_count"] == 0
+
