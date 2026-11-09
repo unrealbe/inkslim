@@ -46,6 +46,9 @@ class Block:
 
     kind: str
     text: str
+    source_page: int | None = None
+    paragraph_index: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
 
 @dataclass(slots=True)
@@ -85,7 +88,19 @@ def _chapter_xhtml(chapter: Chapter, language: str) -> str:
             raise EpubBuildError(f"Unknown block kind: {block.kind!r}")
         text = _text(block.text)
         if text:
-            body.append(f"    <{tag}>{text}</{tag}>")
+            attributes = ""
+            if (
+                block.source_page is not None
+                and block.paragraph_index is not None
+                and block.bbox is not None
+            ):
+                bbox = ",".join(f"{value:.6f}" for value in block.bbox)
+                attributes = (
+                    f' id="p-{block.source_page}-{block.paragraph_index}"'
+                    f' data-source-page="{block.source_page}"'
+                    f' data-source-bbox="{bbox}"'
+                )
+            body.append(f"    <{tag}{attributes}>{text}</{tag}>")
     lang = _attr(language)
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n'
