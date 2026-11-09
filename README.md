@@ -334,6 +334,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
 - Per-page and aggregate JSON quality report (schema version 5), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Exact duplicate-cover diagnostics under `images.duplicate_cover_detection`: evaluation status (`complete`, `incomplete` or `not_evaluated`), SHA-256 byte-comparison method, selected first-page cover candidate, matching later page/image indexes, and an explicit indication that no images were removed.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
