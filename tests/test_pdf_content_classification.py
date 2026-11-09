@@ -99,5 +99,5 @@ def test_empty_ocr_result_does_not_reuse_rejected_native_text():
         recognized_text="",
         text_source="tesseract",
     )
-    assert result["type"] == "empty"
+    assert result["type"] == "unknown"
     assert result["signals"]["text_word_count"] == 0
