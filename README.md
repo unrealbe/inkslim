@@ -301,7 +301,7 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 4 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 5 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
@@ -333,7 +333,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 4), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 5), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
@@ -343,7 +343,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Add exact duplicate-cover detection/removal; semantic cover metadata and advertisement separation are implemented.
+1. Review exact duplicate-cover diagnostics and consider removal only after real-book validation; semantic cover metadata and advertisement separation are implemented.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
@@ -488,7 +488,7 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: high-confidence first-page cover candidates are marked in EPUB metadata, and advertisement-candidate images are preserved in a separate section. Duplicate-cover removal remains in development.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: high-confidence first-page cover candidates are marked in EPUB metadata, and advertisement-candidate images are preserved in a separate section. Exact duplicate-cover diagnostics use SHA-256 byte equality and do not remove images; near-duplicate visual matching and any removal behavior remain future work.
 
 ### General
 
