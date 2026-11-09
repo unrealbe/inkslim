@@ -66,6 +66,12 @@ def test_create_conversion_rejects_invalid_uploads(api_client, content, filename
     assert response.status_code == status
 
 
+def test_default_conversion_language_is_english(api_client, tmp_path):
+    response = submit(api_client, pdf_bytes(tmp_path))
+    assert response.status_code == 201
+    assert response.get_json()["language"] == "eng"
+
+
 def test_status_and_unknown_job_ids(api_client, tmp_path):
     created = submit(api_client, pdf_bytes(tmp_path)).get_json()
     response = api_client.get(created["links"]["self"])
