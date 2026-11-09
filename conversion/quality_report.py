@@ -127,6 +127,7 @@ def build_quality_report(
 
     pages: list[dict[str, Any]] = []
     decisions: Counter[str] = Counter()
+    content_types: Counter[str] = Counter()
     sources: Counter[str] = Counter()
     qualities: Counter[str] = Counter()
     warning_count = 0
@@ -223,6 +224,7 @@ def build_quality_report(
             recognized_text=recognized_text_for_classification,
             text_source=result.source.value if result is not None else None,
         )
+        content_types[page["content_classification"]["type"]] += 1
         if result is not None:
             recognized_text = "\n".join(block.text for block in result.blocks)
             detected_language = detect_page_language(recognized_text)
@@ -336,6 +338,7 @@ def build_quality_report(
         },
         "summary": {
             "total_pages": total_pages,
+            "page_content_types": dict(sorted(content_types.items())),
             "decisions": {
                 decision.value: decisions.get(decision.value, 0)
                 for decision in PageDecision
