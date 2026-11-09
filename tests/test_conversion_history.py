@@ -77,6 +77,8 @@ def test_clear_terminal_jobs_preserves_active_jobs(history_client):
     failed = make_terminal_job(store, tmp_path, JobStatus.FAILED)
     cancelled = make_terminal_job(store, tmp_path, JobStatus.CANCELLED)
     active = store.create_job(source_pdf(tmp_path, "active.pdf"), "active.pdf")
+    claimed = store.claim_next_job("test-worker")
+    assert claimed and claimed.id == active.id
 
     assert store.clear_terminal_jobs() == 2
     assert store.get_job(active.id) is not None
