@@ -29,9 +29,11 @@ def classify_page_content(
 ) -> dict[str, Any]:
     """Return a conservative page-type estimate with confidence and evidence."""
     words = len(re.findall(r"[^\W_]+", recognized_text, re.UNICODE))
-    if words == 0:
+    if words == 0 and text_source != "tesseract":
         words = analysis.word_count
-    has_text = words > 0 or analysis.has_native_text
+    has_text = words > 0 or (
+        analysis.has_native_text and text_source != "tesseract"
+    )
     image_count = images.detected_count if images is not None else analysis.image_count
     coverage = min(1.0, sum(item.coverage for item in images.images)) if images else 0.0
     max_coverage = max((item.coverage for item in images.images), default=0.0) if images else 0.0
