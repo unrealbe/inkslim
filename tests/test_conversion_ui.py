@@ -39,6 +39,8 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert '"Pages with results"' in html
     assert 'warning.page_numbers.join(", ")' in html
     assert 'warning.message || warning.code' in html
+    assert 'imageStats.embedded_in_epub' in html
+    assert 'images included in the EPUB' in html
 
 
 def test_existing_shrink_interface_remains_available():
