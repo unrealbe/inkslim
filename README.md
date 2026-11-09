@@ -301,7 +301,7 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 3 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 4 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
@@ -332,7 +332,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 3), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 4), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
