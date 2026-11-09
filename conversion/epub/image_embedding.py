@@ -7,8 +7,11 @@ placement and cover deduplication are handled by a later page-classification mil
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import zipfile
+
+from PIL import Image, UnidentifiedImageError
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import quoteattr
@@ -25,7 +28,7 @@ class EpubImageEmbeddingError(ValueError):
     """Raised when extracted image assets cannot safely be embedded."""
 
 
-def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, str, str, bytes]]:
+def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, str, str, Path]]:
     root = workspace.root.resolve()
     assets: list[tuple[int, str, str, bytes]] = []
     for page_number in range(1, total_pages + 1):
@@ -41,18 +44,22 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                 resolved = asset.resolve(strict=True)
                 if not resolved.is_relative_to(root) or asset.is_symlink() or not resolved.is_file():
                     raise OSError("Image asset is outside the job workspace")
-                data = resolved.read_bytes()
-            except (OSError, RuntimeError) as exc:
-                raise EpubImageEmbeddingError("An extracted PDF image asset is missing or unsafe") from exc
+                if image.media_type not in {"image/jpeg", "image/png"}:
+                    raise EpubImageEmbeddingError("An extracted PDF image has an unsupported format")
+                with Image.open(resolved) as decoded:
+                    expected_format = "JPEG" if image.media_type == "image/jpeg" else "PNG"
+                    if decoded.format != expected_format:
+                        raise EpubImageEmbeddingError("An extracted PDF image format does not match its metadata")
+                    decoded.verify()
+                # Reopen and force full pixel decoding; verify() alone is not sufficient.
+                with Image.open(resolved) as decoded:
+                    decoded.load()
+            except EpubImageEmbeddingError:
+                raise
+            except (OSError, RuntimeError, UnidentifiedImageError, SyntaxError, ValueError) as exc:
+                raise EpubImageEmbeddingError("An extracted PDF image is missing, unsafe, or undecodable") from exc
 
-            valid_signature = (
-                image.media_type == "image/jpeg" and data.startswith(b"\xff\xd8\xff")
-            ) or (
-                image.media_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n")
-            )
-            if not valid_signature:
-                raise EpubImageEmbeddingError("An extracted PDF image has an unsupported or invalid format")
-            assets.append((page_number, image.source_path, image.media_type, data))
+            assets.append((page_number, image.source_path, image.media_type, resolved))
     return assets
 
 
@@ -101,15 +108,15 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
         raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
 
     figure_markup: list[str] = ['<h2>Illustrations</h2>']
-    image_entries: list[tuple[str, bytes]] = []
-    for index, (page_number, href, media_type, data) in enumerate(assets, start=1):
+    image_entries: list[tuple[str, Path]] = []
+    for index, (page_number, href, media_type, asset_path) in enumerate(assets, start=1):
         image_id = f"pdf-image-{index:04d}"
         manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
             "id": image_id,
             "href": href,
             "media-type": media_type,
         }))
-        image_entries.append(("OEBPS/" + href, data))
+        image_entries.append(("OEBPS/" + href, asset_path))
         alt = f"Image from source PDF page {page_number}"
         figure_markup.append(
             '<figure class="pdf-illustration">'
@@ -145,8 +152,11 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
                 if name == "mimetype":
                     continue
                 target.writestr(name, data, compress_type=info.compress_type)
-            for name, data in image_entries:
-                target.writestr(name, data, compress_type=zipfile.ZIP_STORED)
+            for name, asset_path in image_entries:
+                with asset_path.open("rb") as image_stream, target.open(
+                    name, "w", force_zip64=True
+                ) as archive_stream:
+                    shutil.copyfileobj(image_stream, archive_stream, length=1024 * 1024)
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary, epub_path)
