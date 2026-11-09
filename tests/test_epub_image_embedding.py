@@ -163,3 +163,33 @@ def test_corrupt_image_asset_is_rejected_before_embedding(tmp_path):
     with pytest.raises(EpubImageEmbeddingError, match="undecodable"):
         embed_pdf_images(epub, workspace, total_pages=1)
     assert epub.read_bytes() == before
+
+
+def test_image_dimensions_must_match_checkpoint_and_limits(tmp_path):
+    import pytest
+
+    from conversion.epub.image_embedding import EpubImageEmbeddingError
+
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The file is valid, but its real dimensions disagree with the checkpoint.
+    Image.new("RGB", (81, 60), "green").save(path, "PNG")
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), 80, 60,
+            "image/png", relative_path, 0.64,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "book.epub",
+        EpubMetadata(title="Mismatched image dimensions"),
+        [Chapter("Chapter 1", [Block("p", "Readable text.")])],
+    )
+    with pytest.raises(EpubImageEmbeddingError, match="dimensions"):
+        embed_pdf_images(epub, workspace, total_pages=1)
