@@ -253,9 +253,9 @@ def embed_pdf_images(
             css_data = None
             if css_info is not None:
                 css_data = source.read(css_info) + (
-                    b"\\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
-                    b"\\n.pdf-illustration img { max-width: 100%; height: auto; }"
-                    b"\\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\\n"
+                    b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
+                    b"\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
                 )
 
             # Keep only one uncompressed chapter in memory at a time. Images are
@@ -294,11 +294,11 @@ def embed_pdf_images(
                         for anchor_id, images in anchored.items():
                             escaped_id = re.escape(anchor_id.encode("ascii"))
                             pattern = re.compile(
-                                rb'(<(?:p|h2|h3)\\b(?=[^>]*\\bid="' + escaped_id
+                                rb'(<(?:p|h2|h3)\b(?=[^>]*\bid="' + escaped_id
                                 + rb'")[^>]*>.*?</(?:p|h2|h3)>)',
                                 re.DOTALL,
                             )
-                            markup = b"\\n" + b"\\n".join(
+                            markup = b"\n" + b"\n".join(
                                 _figure_markup(image) for image in images
                             )
                             chapter_bytes, count = pattern.subn(
@@ -318,7 +318,7 @@ def embed_pdf_images(
                                 )
                             chapter_bytes = chapter_bytes.replace(
                                 _XHTML_END,
-                                b"<!-- inkslim-image-layout:2 -->\\n</section>",
+                                b"<!-- inkslim-image-layout:2 -->\n</section>",
                                 1,
                             )
 
@@ -328,11 +328,11 @@ def embed_pdf_images(
                                     "Final EPUB chapter has no content section"
                                 )
                             appendix_markup = (
-                                b"\\n<h2>Illustrations</h2>\\n"
-                                + b"\\n".join(
+                                b"\n<h2>Illustrations</h2>\n"
+                                + b"\n".join(
                                     _figure_markup(image) for image, _asset_path in pending
                                 )
-                                + b"\\n"
+                                + b"\n"
                             )
                             chapter_bytes = chapter_bytes.replace(
                                 _XHTML_END, appendix_markup + _XHTML_END, 1
