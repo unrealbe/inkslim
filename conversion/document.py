@@ -52,10 +52,7 @@ class DocumentParagraph:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DocumentParagraph:
-        bbox_value = data.get("bbox")
-        bbox = tuple(float(value) for value in bbox_value) if (
-            isinstance(bbox_value, (list, tuple)) and len(bbox_value) == 4
-        ) else None
+        bbox = _paragraph_bbox(data)
         source_page = data.get("source_page")
         paragraph_index = data.get("paragraph_index")
         return cls(
