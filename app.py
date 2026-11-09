@@ -1091,7 +1091,7 @@ function showQualityReport(url) {
       : imageStats.status === "not_yet_embedded"
         ? "Images have been extracted from the PDF but are not yet included in the EPUB."
         : imageStats.status === "no_images"
-          ? "No embedded images were detected in the PDF."
+          ? "No images were included in the EPUB."
           : imageStats.status === "epub_unreadable"
             ? "The generated EPUB could not be inspected for embedded images."
             : imageStats.status === "incomplete"
