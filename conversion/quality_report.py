@@ -135,17 +135,21 @@ def _duplicate_cover_statistics(
         "removed_count": 0,
         "automatic_removal_enabled": False,
     }
+    first_checkpoint = workspace.load_page_images(1)
+    if (
+        first_checkpoint is None
+        or first_checkpoint.detected_count is None
+        or first_checkpoint.detected_count != len(first_checkpoint.images)
+    ):
+        result["status"] = "incomplete"
+        return result
+
     classification = classifications.get(1, {})
     try:
         confidence = float(classification.get("confidence", 0.0))
     except (TypeError, ValueError):
         confidence = 0.0
     if classification.get("type") != "cover_candidate" or confidence < 0.75:
-        return result
-
-    first_checkpoint = workspace.load_page_images(1)
-    if first_checkpoint is None or first_checkpoint.detected_count is None:
-        result["status"] = "incomplete"
         return result
     cover_candidates = [
         image for image in first_checkpoint.images if image.coverage >= 0.45
