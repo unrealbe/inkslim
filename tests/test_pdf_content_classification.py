@@ -70,6 +70,6 @@ def test_incomplete_image_detection_caps_confidence():
 
 def test_empty_page_classification():
     result = classify_page_content(
-        _analysis(page=9, decision=PageDecision.EMPTY), PageImages(9)
+        _analysis(page=9, decision=PageDecision.EMPTY), PageImages(9, detected_count=0)
     )
     assert result["type"] == "empty"
