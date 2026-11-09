@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from ..document import build_document_model
+from ..pdf.content_classification import classify_page_content
 from ..language import epub_language_for_selection
 from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
@@ -37,6 +38,28 @@ def _display_title(name: str) -> str:
     stem = Path(name).stem
     cleaned = re.sub(r"[_\-]+", " ", stem).strip()
     return cleaned.title() if cleaned else "Book"
+
+
+def _page_content_classifications(workspace: JobWorkspace, total_pages: int) -> dict[int, dict]:
+    """Build page classifications from durable analysis and text/image checkpoints."""
+    classifications: dict[int, dict] = {}
+    for page_number in range(1, total_pages + 1):
+        analysis = workspace.load_page_analysis(page_number)
+        if analysis is None:
+            continue
+        result = workspace.load_page_result(page_number)
+        images = workspace.load_page_images(page_number)
+        recognized_text = (
+            "\\n".join(block.text for block in result.blocks)
+            if result is not None else ""
+        )
+        classifications[page_number] = classify_page_content(
+            analysis,
+            images,
+            recognized_text=recognized_text,
+            text_source=result.source.value if result is not None else None,
+        )
+    return classifications
 
 
 def generate_job_epub(
@@ -98,7 +121,12 @@ def generate_job_epub(
     try:
         build_epub(destination=destination, metadata=doc.metadata, chapters=doc.to_epub_chapters())
         try:
-            embed_pdf_images(destination, workspace, total_pages=total_pages)
+            embed_pdf_images(
+                destination,
+                workspace,
+                total_pages=total_pages,
+                page_classifications=_page_content_classifications(workspace, total_pages),
+            )
         except OSError:
             destination.unlink(missing_ok=True)
             raise
