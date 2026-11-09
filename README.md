@@ -310,6 +310,7 @@ Each completed conversion writes `quality-report.json` beside the generated EPUB
 - Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
 - Text-page coverage across non-empty source pages.
 - Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
+- Per-page semantic content candidates (text, scanned text, mixed, cover, illustration, advertisement, empty or unknown), confidence scores, evidence and aggregate page-type counts.
 
 The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes both page-level warnings and content-quality warning entries.
 
