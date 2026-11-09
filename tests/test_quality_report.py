@@ -363,7 +363,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     assert non_duplicate_asset.read_bytes() != cover_bytes
 
 
-def test_duplicate_cover_detection_is_incomplete_when_a_page_checkpoint_is_missing(tmp_path):
+def test_duplicate_cover_detection_is_incomplete_when_first_page_image_checkpoint_is_partial(tmp_path):
     source = tmp_path / "partial-cover.pdf"
     source.write_bytes(b"%PDF-placeholder")
     store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
@@ -378,12 +378,13 @@ def test_duplicate_cover_detection_is_incomplete_when_a_page_checkpoint_is_missi
             1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
             "image/png", "images/000001-0001.png", 1.0,
         ),
-    ), detected_count=1))
+    ), detected_count=2))
     workspace.save_page_analysis(PageAnalysis(
         page_number=1, width=612, height=792, character_count=0,
         word_count=0, image_count=1, has_native_text=False,
         native_text_quality=None, decision=PageDecision.EMPTY,
     ))
+    workspace.save_page_images(PageImages(2, (), detected_count=0))
     workspace.save_page_analysis(PageAnalysis(
         page_number=2, width=612, height=792, character_count=0,
         word_count=0, image_count=0, has_native_text=False,
