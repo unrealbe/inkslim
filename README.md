@@ -342,11 +342,11 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Classify source-PDF images and pages, then improve semantic selection, inline placement, cover selection and duplicate-cover handling; extracted images are already packaged in a labelled Illustrations section.
+1. Improve source-PDF image placement with page classification, semantic selection, cover selection and duplicate-cover handling. Images are placed inline when a clear source-text gap can be established from page geometry; uncertain images remain in a labelled Illustrations section.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
-Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are now packaged in a labelled Illustrations section in source-page order. Exact inline placement, semantic page classification, cover selection and duplicate-cover handling remain future content-preservation work.
+Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are placed immediately after a source paragraph only when the image fits in a clear vertical gap between two paragraphs on the same source page. Images without a bounded, unambiguous text anchor remain in a labelled Illustrations section. This geometric first pass does not yet classify covers, advertisements or semantic illustrations, and does not perform cover selection or duplicate-cover handling.
 
 ### Persistent data
 
@@ -487,14 +487,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are embedded in a labelled Illustrations section; exact inline placement and cover handling remain in development.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification and cover handling remain in development.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow embeds extracted source-PDF images in an Illustrations section. Exact inline placement and cover handling remain in development; automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification and cover handling remain in development; automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 
