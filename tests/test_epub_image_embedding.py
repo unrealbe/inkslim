@@ -8,7 +8,11 @@ from PIL import Image
 
 from conversion.epub.builder import Chapter, Block, EpubMetadata, build_epub
 from conversion.epub.generator import is_valid_epub
-from conversion.epub.image_embedding import embed_pdf_images, embedded_image_count
+from conversion.epub.image_embedding import (
+    embed_pdf_images,
+    embedded_image_count,
+    has_current_image_layout,
+)
 from conversion.pdf.images import PageImage, PageImages
 from conversion.storage import JobWorkspace
 
@@ -243,3 +247,72 @@ def test_matching_checkpoint_image_over_limits_is_rejected(tmp_path, width, heig
     )
     with pytest.raises(EpubImageEmbeddingError, match="dimensions"):
         embed_pdf_images(epub, workspace, total_pages=1)
+
+
+
+def test_places_image_between_paragraphs_on_its_source_page(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (80, 60), "orange").save(path, "PNG")
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.15, 0.30, 0.85, 0.55), 80, 60,
+            "image/png", relative_path, 0.175,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+
+    epub = build_epub(
+        tmp_path / "inline.epub",
+        EpubMetadata(title="Inline placement"),
+        [Chapter("Chapter 1", [
+            Block("p", "Text before the illustration.", 1, 1, (0.1, 0.1, 0.9, 0.2)),
+            Block("p", "Text after the illustration.", 1, 2, (0.1, 0.7, 0.9, 0.8)),
+        ])],
+    )
+    assert embed_pdf_images(epub, workspace, total_pages=1) == 1
+    assert has_current_image_layout(epub)
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        before = chapter.index(b"Text before the illustration.")
+        figure = chapter.index(b'<figure class="pdf-illustration">')
+        after = chapter.index(b"Text after the illustration.")
+        assert before < figure < after
+        assert b"<h2>Illustrations</h2>" not in chapter
+        assert b"data-source-page=\"1\"" in chapter
+        assert f"OEBPS/{relative_path}" in archive.namelist()
+
+
+def test_image_without_bounded_text_gap_stays_in_appendix(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (80, 60), "purple").save(path, "PNG")
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.15, 0.30, 0.85, 0.55), 80, 60,
+            "image/png", relative_path, 0.175,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "fallback.epub",
+        EpubMetadata(title="Safe fallback"),
+        [Chapter("Chapter 1", [
+            Block("p", "Only paragraph.", 1, 1, (0.1, 0.1, 0.9, 0.2)),
+        ])],
+    )
+    embed_pdf_images(epub, workspace, total_pages=1)
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        assert chapter.index(b"Only paragraph.") < chapter.index(b"<h2>Illustrations</h2>")
