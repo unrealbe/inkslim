@@ -45,9 +45,9 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
             except (OSError, RuntimeError) as exc:
                 raise EpubImageEmbeddingError("An extracted PDF image asset is missing or unsafe") from exc
 
-            if image.media_type == "image/jpeg" and data.startswith(b"\\xff\\xd8\\xff"):
+            if image.media_type == "image/jpeg" and data.startswith(b"\xff\xd8\xff"):
                 extension = "jpg"
-            elif image.media_type == "image/png" and data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+            elif image.media_type == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n"):
                 extension = "png"
             else:
                 raise EpubImageEmbeddingError("An extracted PDF image has an unsupported or invalid format")
@@ -118,7 +118,7 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
             '</figure>'
         )
 
-    insertion = ("\\n" + "\\n".join(figure_markup) + "\\n").encode("utf-8")
+    insertion = ("\n" + "\n".join(figure_markup) + "\n").encode("utf-8")
     chapter_bytes = chapter_bytes.replace(_XHTML_END, insertion + _XHTML_END, 1)
     entries[chapter_path] = (entries[chapter_path][0], chapter_bytes)
 
@@ -127,7 +127,7 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
 
     css_info, css_data = entries.get("OEBPS/styles.css", (None, b""))
     if css_info is not None:
-        css_data += b"\\n.pdf-illustration { margin: 1.5em 0; text-align: center; }\\n.pdf-illustration img { max-width: 100%; height: auto; }\\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\\n"
+        css_data += b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }\n.pdf-illustration img { max-width: 100%; height: auto; }\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
         entries["OEBPS/styles.css"] = (css_info, css_data)
 
     handle, temporary_name = tempfile.mkstemp(
