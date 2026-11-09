@@ -289,7 +289,7 @@ def embed_pdf_images(
                     cover_manifest_id = item_id
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", attributes))
             if cover_manifest_id and metadata is not None:
-                metadata.append(ET.Element(f"{{_OPF_NS}}meta", {
+                metadata.append(ET.Element(f"{{{_OPF_NS}}}meta", {
                     "name": "cover",
                     "content": cover_manifest_id,
                 }))
@@ -381,7 +381,7 @@ def embed_pdf_images(
                             )
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END,
-                            b"<!-- inkslim-image-layout:2 -->\n</section>",
+                            b"<!-- inkslim-image-layout:3 -->\n</section>",
                             1,
                         )
 
