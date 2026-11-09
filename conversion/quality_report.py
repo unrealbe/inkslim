@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import zipfile
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,6 +106,7 @@ def _image_statistics(workspace: JobWorkspace, total_pages: int) -> dict[str, An
         "missing_asset_count": missing_asset_count,
         "extracted_bytes": extracted_bytes,
         "embedded_in_epub": None,
+        "embedded_bytes": None,
         "scan_failure_pages": scan_failure_pages[:100],
         "missing_checkpoint_pages": missing_checkpoint_pages[:100],
         "warnings": warnings,
@@ -237,6 +239,26 @@ def build_quality_report(
     source_size = source_path.stat().st_size if source_path.is_file() else None
     output = Path(output_path) if output_path is not None else None
     output_size = output.stat().st_size if output is not None and output.is_file() else None
+    if output is not None and output.is_file():
+        try:
+            with zipfile.ZipFile(output, "r") as archive:
+                embedded_assets = [
+                    name for name in archive.namelist()
+                    if name.startswith("OEBPS/images/")
+                    and name.lower().endswith((".jpg", ".jpeg", ".png"))
+                ]
+                image_stats["embedded_in_epub"] = len(embedded_assets)
+                image_stats["embedded_bytes"] = sum(
+                    archive.getinfo(name).file_size for name in embedded_assets
+                )
+                image_stats["status"] = (
+                    "embedded" if embedded_assets else
+                    "not_yet_embedded" if image_stats["extracted_count"] else
+                    "no_images" if image_stats["detection_complete"] and image_stats["detected_count"] == 0
+                    else "incomplete"
+                )
+        except (OSError, zipfile.BadZipFile):
+            image_stats["status"] = "epub_unreadable"
 
     content_warnings: list[dict[str, Any]] = []
     if content_stats["word_count"] == 0:

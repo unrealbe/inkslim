@@ -11,6 +11,7 @@ from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobProcessingError
 from .builder import EpubBuildError, build_epub
+from .image_embedding import EpubImageEmbeddingError, embed_pdf_images, embedded_image_count
 from .validation import validate_epub
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,17 @@ def generate_job_epub(
     total_pages: int,
     store: JobStore | None = None,
 ) -> Path:
-    """Build a complete EPUB 3 output from durable conversion checkpoints."""
+    """Build a complete EPUB 3 output from durable checkpoints, including extracted images."""
     if total_pages < 1:
         raise ValueError("total_pages must be at least 1")
     destination = workspace.output_dir / f"{_safe_stem(job.input_name)}-{job.id[:8]}.epub"
 
-    if is_valid_epub(destination):
+    expected_images = sum(
+        len(checkpoint.images)
+        for page in range(1, total_pages + 1)
+        if (checkpoint := workspace.load_page_images(page)) is not None
+    )
+    if is_valid_epub(destination) and embedded_image_count(destination) == expected_images:
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
         return destination
     if store and store.is_cancel_requested(job.id):
@@ -71,8 +77,6 @@ def generate_job_epub(
         cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
         title=_display_title(job.input_name), language=epub_language_for_selection(job.language),
     )
-    # A new conversion is a distinct publication, even when the source filename
-    # and book content are identical to an earlier job.
     doc.metadata.identifier = f"urn:uuid:{job.id}"
     workspace.save_document_model(doc)
 
@@ -84,8 +88,17 @@ def generate_job_epub(
                               message="Assembling EPUB document...")
     try:
         build_epub(destination=destination, metadata=doc.metadata, chapters=doc.to_epub_chapters())
+        try:
+            embed_pdf_images(destination, workspace, total_pages=total_pages)
+        except OSError:
+            destination.unlink(missing_ok=True)
+            raise
     except EpubBuildError as exc:
         raise JobProcessingError("EPUB_BUILD_FAILED", f"EPUB generation failed: {exc}") from exc
+    except EpubImageEmbeddingError as exc:
+        destination.unlink(missing_ok=True)
+        raise JobProcessingError("EPUB_IMAGE_EMBEDDING_FAILED",
+                                 "One or more extracted PDF images could not be included in the EPUB.") from exc
     except OSError as exc:
         raise JobProcessingError("STORAGE_ERROR", "Could not save the generated EPUB file.") from exc
 

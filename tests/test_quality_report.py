@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -249,6 +250,28 @@ def test_quality_report_summarizes_extracted_images_and_incomplete_extraction(tm
     assert "images/000001-0001.png" not in report_path.read_text(encoding="utf-8")
     assert report["pages"][0]["images"]["detected_count"] == 2
 
+
+
+def test_quality_report_counts_images_embedded_in_epub(tmp_path):
+    source = tmp_path / "illustrated.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
+    workspace.save_page_images(PageImages(1, (), detected_count=0))
+
+    epub = tmp_path / "book.epub"
+    with zipfile.ZipFile(epub, "w") as archive:
+        archive.writestr("OEBPS/images/example.png", b"1234567890")
+
+    report_path = build_quality_report(
+        job, workspace, total_pages=1, output_path=epub,
+    )
+    images = json.loads(report_path.read_text(encoding="utf-8"))["images"]
+    assert images["status"] == "embedded"
+    assert images["embedded_in_epub"] == 1
+    assert images["embedded_bytes"] == 10
 
 def test_quality_report_flags_missing_image_checkpoints(tmp_path):
     source = tmp_path / "partial.pdf"

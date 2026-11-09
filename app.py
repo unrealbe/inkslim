@@ -1085,9 +1085,18 @@ function showQualityReport(url) {
       " · Extracted data: " + fmt(imageStats.extracted_bytes || 0);
     const imageStatus = document.createElement("p");
     imageStatus.className = "meta";
-    imageStatus.textContent = imageStats.status === "not_yet_embedded"
-      ? "Images have been extracted from the PDF but are not yet included in the EPUB."
-      : "Image extraction status unavailable.";
+    imageStatus.textContent = imageStats.status === "embedded"
+      ? (imageStats.embedded_in_epub || 0) + " images included in the EPUB · " +
+        fmt(imageStats.embedded_bytes || 0) + " embedded data."
+      : imageStats.status === "not_yet_embedded"
+        ? "Images have been extracted from the PDF but are not yet included in the EPUB."
+        : imageStats.status === "no_images"
+          ? "No images were included in the EPUB."
+          : imageStats.status === "epub_unreadable"
+            ? "The generated EPUB could not be inspected for embedded images."
+            : imageStats.status === "incomplete"
+              ? "Image detection or extraction was incomplete; some source images may be missing."
+              : "Image extraction status unavailable.";
     panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
     if (imageStats.detection_complete === false) {
       const imageNote = document.createElement("p");

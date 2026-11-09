@@ -186,9 +186,9 @@ Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned b
 | French / German | Single-language OCR |
 | French + English | Both language models |
 
-The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF is retained in the conversion workspace until job cleanup; automatic expiry cleanup is not implemented yet.
+The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
-The generated EPUB currently contains reconstructed text, headings and chapter navigation. Illustrations and images from the original PDF are not yet carried into the EPUB.
+The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are included in a labelled Illustrations section at the end of the book, in source-page order. Exact inline placement, cover selection and duplicate-cover handling are not yet implemented.
 
 ### PDF settings
 
@@ -305,7 +305,7 @@ Each completed conversion writes `quality-report.json` beside the generated EPUB
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
-- An explicit status showing that extracted images are not yet embedded in the EPUB.
+- Embedded image count and bytes, alongside extraction counts and warnings. The report distinguishes extracted assets from images actually packaged in the EPUB.
 - Reconstructed chapter, paragraph, heading and word counts.
 - Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
 - Text-page coverage across non-empty source pages.
@@ -332,7 +332,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 2), including EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 3), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
@@ -342,11 +342,11 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Preserve and place relevant source-PDF illustrations and images in the reflowable EPUB.
+1. Classify source-PDF images and pages, then improve semantic selection, inline placement, cover selection and duplicate-cover handling; extracted images are already packaged in a labelled Illustrations section.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
-Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Images and illustrations from the source PDF are not yet transferred into the generated EPUB; this remains an explicit content-preservation milestone.
+Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are now packaged in a labelled Illustrations section in source-page order. Exact inline placement, semantic page classification, cover selection and duplicate-cover handling remain future content-preservation work.
 
 ### Persistent data
 
@@ -487,14 +487,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Source-PDF illustrations are not yet embedded in the generated EPUB.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are embedded in a labelled Illustrations section; exact inline placement and cover handling remain in development.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow is usable, but source-PDF illustrations are not yet carried into the generated EPUB and automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images in an Illustrations section. Exact inline placement and cover handling remain in development; automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 

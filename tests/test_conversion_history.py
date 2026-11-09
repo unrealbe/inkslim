@@ -74,9 +74,11 @@ def test_delete_job_refuses_queued_or_active_jobs(history_client):
 
 def test_clear_terminal_jobs_preserves_active_jobs(history_client):
     _, store, tmp_path = history_client
-    active = store.create_job(source_pdf(tmp_path, "active.pdf"), "active.pdf")
-    cancelled = make_terminal_job(store, tmp_path, JobStatus.CANCELLED)
     failed = make_terminal_job(store, tmp_path, JobStatus.FAILED)
+    cancelled = make_terminal_job(store, tmp_path, JobStatus.CANCELLED)
+    active = store.create_job(source_pdf(tmp_path, "active.pdf"), "active.pdf")
+    claimed = store.claim_next_job("test-worker")
+    assert claimed and claimed.id == active.id
 
     assert store.clear_terminal_jobs() == 2
     assert store.get_job(active.id) is not None
