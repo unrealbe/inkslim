@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import PageAnalysis
+from .models import PageAnalysis, PageDecision
 from .images import PageImages
 
 _ADVERT_TERMS = re.compile(
@@ -18,6 +18,41 @@ _ADVERT_TERMS = re.compile(
     re.IGNORECASE,
 )
 _MIN_BODY_WORDS = 20
+
+
+def _rectangle_union_coverage(images: PageImages) -> float:
+    """Return the union area of normalized image rectangles, without overlap double-counting."""
+    rectangles = []
+    for item in images.images:
+        x0, y0, x1, y1 = item.bbox
+        if x1 > x0 and y1 > y0:
+            rectangles.append((max(0.0, x0), max(0.0, y0), min(1.0, x1), min(1.0, y1)))
+
+    if not rectangles:
+        return 0.0
+
+    x_edges = sorted({edge for rect in rectangles for edge in (rect[0], rect[2])})
+    area = 0.0
+    for left, right in zip(x_edges, x_edges[1:]):
+        if right <= left:
+            continue
+        intervals = sorted(
+            (top, bottom)
+            for x0, top, x1, bottom in rectangles
+            if x0 < right and x1 > left
+        )
+        covered_y = 0.0
+        if intervals:
+            start, end = intervals[0]
+            for next_start, next_end in intervals[1:]:
+                if next_start <= end:
+                    end = max(end, next_end)
+                else:
+                    covered_y += max(0.0, end - start)
+                    start, end = next_start, next_end
+            covered_y += max(0.0, end - start)
+        area += (right - left) * covered_y
+    return min(1.0, max(0.0, area))
 
 
 def classify_page_content(
@@ -35,16 +70,13 @@ def classify_page_content(
         analysis.has_native_text and text_source != "tesseract"
     )
     image_count = images.detected_count if images is not None else analysis.image_count
-    coverage = min(1.0, sum(item.coverage for item in images.images)) if images else 0.0
+    coverage = _rectangle_union_coverage(images) if images is not None else 0.0
     max_coverage = max((item.coverage for item in images.images), default=0.0) if images else 0.0
     reasons: list[str] = []
     page_type = "unknown"
     confidence = 0.35
 
-    if not has_text and images is not None and images.detected_count == 0:
-        page_type, confidence = "empty", 0.95
-        reasons.append("No text or embedded images were detected")
-    elif (
+    if (
         analysis.page_number == 1
         and max_coverage >= 0.45
         and words < _MIN_BODY_WORDS
@@ -78,7 +110,11 @@ def classify_page_content(
         page_type, confidence = "illustration_candidate", 0.55
         reasons.append("Images are present but their semantic role is uncertain")
     else:
-        reasons.append("Available page signals are incomplete or ambiguous")
+        reasons.append(
+            "No text or embedded images were detected, but vector drawing content is not inspected"
+            if not has_text and image_count == 0
+            else "Available page signals are incomplete or ambiguous"
+        )
 
     if images is None or images.detected_count is None:
         confidence = min(confidence, 0.45)
