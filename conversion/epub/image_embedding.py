@@ -11,6 +11,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Mapping
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
@@ -86,7 +87,7 @@ def has_current_image_layout(epub_path: Path | str) -> bool:
         with zipfile.ZipFile(epub_path, "r") as archive:
             return any(
                 name.startswith("OEBPS/chapter_") and name.endswith(".xhtml")
-                and b"inkslim-image-layout:2" in archive.read(name)
+                and b"inkslim-image-layout:3" in archive.read(name)
                 for name in archive.namelist()
             )
     except (OSError, zipfile.BadZipFile, KeyError):
@@ -201,12 +202,45 @@ def _figure_markup(image: PageImage) -> bytes:
 
 
 def embed_pdf_images(
-    epub_path: Path | str, workspace: JobWorkspace, *, total_pages: int
+    epub_path: Path | str,
+    workspace: JobWorkspace,
+    *,
+    total_pages: int,
+    page_classifications: Mapping[int, Mapping[str, object]] | None = None,
 ) -> int:
-    """Embed extracted images inline at safe anchors; append uncertain images."""
+    """Embed illustrations inline, keep promotional images separate, and mark a confident cover."""
     assets = _load_assets(workspace, total_pages)
     if not assets:
         return 0
+
+    # Classification is advisory. Only a strong first-page cover candidate is
+    # promoted to EPUB cover metadata; no extracted asset is discarded.
+    cover_asset: tuple[PageImage, Path] | None = None
+    advert_assets: list[tuple[PageImage, Path]] = []
+    if page_classifications:
+        first_page = page_classifications.get(1, {})
+        if (
+            first_page.get("type") == "cover_candidate"
+            and float(first_page.get("confidence", 0.0)) >= 0.75
+        ):
+            candidates = [
+                asset for asset in assets
+                if asset[0].page_number == 1 and asset[0].coverage >= 0.45
+            ]
+            if candidates:
+                cover_asset = max(candidates, key=lambda asset: asset[0].coverage)
+
+        advert_pages = {
+            page_number
+            for page_number, classification in page_classifications.items()
+            if classification.get("type") == "advert_candidate"
+            and float(classification.get("confidence", 0.0)) >= 0.65
+        }
+        advert_assets = [
+            asset for asset in assets
+            if asset[0].page_number in advert_pages
+            and (cover_asset is None or asset[0] != cover_asset[0])
+        ]
 
     epub_path = Path(epub_path)
     handle, temporary_name = tempfile.mkstemp(
@@ -241,12 +275,19 @@ def embed_pdf_images(
             if not chapter_paths:
                 raise EpubImageEmbeddingError("Generated EPUB has no chapter documents")
 
+            metadata = opf_root.find(f"{{{_OPF_NS}}}metadata")
+            cover_manifest_id = None
             for index, (image, _asset_path) in enumerate(assets, start=1):
-                manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
-                    "id": f"pdf-image-{index:04d}",
+                item_id = f"pdf-image-{index:04d}"
+                attributes = {
+                    "id": item_id,
                     "href": image.source_path,
                     "media-type": image.media_type,
-                }))
+                }
+                if cover_asset is not None and image == cover_asset[0]:
+                    attributes["properties"] = "cover-image"
+                    cover_manifest_id = item_id
+                manifest.append(ET.Element(f"{{{_OPF_NS}}}item", attributes))
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
 
             css_info = info_by_name.get("OEBPS/styles.css")
@@ -261,7 +302,11 @@ def embed_pdf_images(
             # Keep only one uncompressed chapter in memory at a time. Images are
             # assigned as the spine is streamed, and unresolved assets flow into
             # the final chapter's appendix.
-            pending = list(assets)
+            pending = [
+                asset for asset in assets
+                if asset not in advert_assets
+                and (cover_asset is None or asset != cover_asset)
+            ]
             first_chapter = chapter_paths[0]
             last_chapter = chapter_paths[-1]
 
@@ -331,22 +376,31 @@ def embed_pdf_images(
                             )
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END,
-                            b"<!-- inkslim-image-layout:2 -->\n</section>",
+                            b"<!-- inkslim-image-layout:3 -->\n</section>",
                             1,
                         )
 
-                    if chapter_path == last_chapter and pending:
+                    if chapter_path == last_chapter and (pending or advert_assets):
                         if _XHTML_END not in chapter_bytes:
                             raise EpubImageEmbeddingError(
                                 "Final EPUB chapter has no content section"
                             )
-                        appendix_markup = (
-                            b"\n<h2>Illustrations</h2>\n"
-                            + b"\n".join(
-                                _figure_markup(image) for image, _asset_path in pending
-                            )
-                            + b"\n"
-                        )
+                        appendix_parts = []
+                        if pending:
+                            appendix_parts.extend([
+                                b"\n<h2>Illustrations</h2>\n",
+                                b"\n".join(
+                                    _figure_markup(image) for image, _asset_path in pending
+                                ),
+                            ])
+                        if advert_assets:
+                            appendix_parts.extend([
+                                b"\n<h2>Promotional material</h2>\n",
+                                b"\n".join(
+                                    _figure_markup(image) for image, _asset_path in advert_assets
+                                ),
+                            ])
+                        appendix_markup = b"\n".join(appendix_parts) + b"\n"
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END, appendix_markup + _XHTML_END, 1
                         )

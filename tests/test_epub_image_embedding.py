@@ -286,8 +286,8 @@ def test_places_image_between_paragraphs_on_its_source_page(tmp_path):
         assert before < figure < after
         assert b"<h2>Illustrations</h2>" not in chapter
         assert b"data-source-page=\"1\"" in chapter
-        assert b"<!-- inkslim-image-layout:2 -->\n</section>" in chapter
-        assert b"<!-- inkslim-image-layout:2 -->\\n</section>" not in chapter
+        assert b"<!-- inkslim-image-layout:3 -->\n</section>" in chapter
+        assert b"<!-- inkslim-image-layout:3 -->\\n</section>" not in chapter
         assert f"OEBPS/{relative_path}" in archive.namelist()
 
 
@@ -337,3 +337,95 @@ def test_negative_paragraph_index_does_not_emit_duplicate_source_anchor_ids(tmp_
         chapter = archive.read("OEBPS/chapter_0001.xhtml")
         assert b'data-source-page=' not in chapter
         assert b'id="p-1--1"' not in chapter
+
+
+def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    cover_path = _save_image(workspace, 1, 1, "red")
+    epub = build_epub(
+        tmp_path / "cover.epub",
+        EpubMetadata(title="Cover metadata"),
+        [Chapter("Chapter 1", [Block("p", "Book text.")])],
+    )
+
+    count = embed_pdf_images(
+        epub,
+        workspace,
+        total_pages=1,
+        page_classifications={
+            1: {"type": "cover_candidate", "confidence": 0.78}
+        },
+    )
+
+    assert count == 1
+    with zipfile.ZipFile(epub) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        cover_items = opf.findall(
+            "opf:manifest/opf:item[@properties='cover-image']", NS
+        )
+        assert len(cover_items) == 1
+        assert cover_items[0].get("href") == cover_path
+        chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        assert not chapter.findall(".//x:figure", NS)
+        assert f"OEBPS/{cover_path}" in archive.namelist()
+
+
+def test_advert_candidate_images_are_preserved_in_separate_appendix(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    advert_path = _save_image(workspace, 2, 1, "blue")
+    epub = build_epub(
+        tmp_path / "advert.epub",
+        EpubMetadata(title="Advertisement handling"),
+        [Chapter("Chapter 1", [
+            Block("p", "Text before.", 2, 1, (0.1, 0.1, 0.9, 0.2)),
+            Block("p", "Text after.", 2, 2, (0.1, 0.7, 0.9, 0.8)),
+        ])],
+    )
+
+    assert embed_pdf_images(
+        epub,
+        workspace,
+        total_pages=2,
+        page_classifications={
+            2: {"type": "advert_candidate", "confidence": 0.68}
+        },
+    ) == 1
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        assert b"Promotional material" in chapter
+        assert b"Illustrations" not in chapter
+        assert chapter.index(b"Text after.") < chapter.index(b"Promotional material")
+        assert advert_path.encode("utf-8") in chapter
+        assert f"OEBPS/{advert_path}" in archive.namelist()
+
+
+def test_low_confidence_cover_candidate_is_not_promoted_or_removed(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    cover_path = _save_image(workspace, 1, 1, "green")
+    epub = build_epub(
+        tmp_path / "uncertain-cover.epub",
+        EpubMetadata(title="Uncertain cover"),
+        [Chapter("Chapter 1", [Block("p", "Book text.")])],
+    )
+
+    embed_pdf_images(
+        epub,
+        workspace,
+        total_pages=1,
+        page_classifications={
+            1: {"type": "cover_candidate", "confidence": 0.60}
+        },
+    )
+
+    with zipfile.ZipFile(epub) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert not opf.findall(
+            "opf:manifest/opf:item[@properties='cover-image']", NS
+        )
+        chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        assert len(chapter.findall(".//x:figure", NS)) == 1
+        assert f"OEBPS/{cover_path}" in archive.namelist()
