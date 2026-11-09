@@ -1,12 +1,12 @@
-"""Embed extracted PDF image assets into a generated EPUB.
+"""Place extracted PDF images beside their source text when geometry is unambiguous.
 
-Images are currently collected in a clearly labelled source-page appendix. This keeps
-all extracted artwork available without guessing at semantic reading order; inline
-placement and cover deduplication are handled by a later page-classification milestone.
+Images that cannot be anchored safely remain in a labelled appendix. This module
+never changes text order and never guesses across overlapping text/image regions.
 """
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -16,23 +16,30 @@ from xml.sax.saxutils import quoteattr
 
 from PIL import Image
 
-from ..pdf.images import MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS
-
+from ..pdf.images import MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, PageImage
 from ..storage import JobWorkspace
 
 _OPF_NS = "http://www.idpf.org/2007/opf"
 _XHTML_END = b"</section>"
 ET.register_namespace("", _OPF_NS)
 ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
+_PARAGRAPH_RE = re.compile(
+    rb'<(p|h2|h3)\b([^>]*)>(.*?)</\1>', re.DOTALL
+)
+_SOURCE_PAGE_RE = re.compile(rb'\bdata-source-page="([0-9]+)"')
+_SOURCE_BBOX_RE = re.compile(rb'\bdata-source-bbox="([0-9.,-]+)"')
+_ID_RE = re.compile(rb'\bid="(p-[0-9]+-[0-9]+)"')
 
 
 class EpubImageEmbeddingError(ValueError):
     """Raised when extracted image assets cannot safely be embedded."""
 
 
-def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, str, str, Path]]:
+def _load_assets(
+    workspace: JobWorkspace, total_pages: int
+) -> list[tuple[PageImage, Path]]:
     root = workspace.root.resolve()
-    assets: list[tuple[int, str, str, Path]] = []
+    assets: list[tuple[PageImage, Path]] = []
     for page_number in range(1, total_pages + 1):
         checkpoint = workspace.load_page_images(page_number)
         if checkpoint is None:
@@ -61,17 +68,15 @@ def _load_assets(workspace: JobWorkspace, total_pages: int) -> list[tuple[int, s
                     ):
                         raise EpubImageEmbeddingError("An extracted PDF image has invalid or excessive dimensions")
                     decoded.verify()
-                # Reopen and force full pixel decoding; verify() alone is not sufficient.
                 with Image.open(resolved) as decoded:
                     decoded.load()
             except EpubImageEmbeddingError:
                 raise
             except Exception as exc:
-                # Pillow may raise EOFError, struct/zlib errors or decoder-specific
-                # exceptions for damaged payloads; normalize all decode failures.
-                raise EpubImageEmbeddingError("An extracted PDF image is missing, unsafe, or undecodable") from exc
-
-            assets.append((page_number, image.source_path, image.media_type, resolved))
+                raise EpubImageEmbeddingError(
+                    "An extracted PDF image is missing, unsafe, or undecodable"
+                ) from exc
+            assets.append((image, resolved))
     return assets
 
 
@@ -80,15 +85,96 @@ def embedded_image_count(epub_path: Path | str) -> int:
     try:
         with zipfile.ZipFile(epub_path, "r") as archive:
             return sum(
-                name.startswith("OEBPS/images/") and name.lower().endswith((".jpg", ".jpeg", ".png"))
+                name.startswith("OEBPS/images/")
+                and name.lower().endswith((".jpg", ".jpeg", ".png"))
                 for name in archive.namelist()
             )
     except (OSError, zipfile.BadZipFile):
         return 0
 
 
-def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pages: int) -> int:
-    """Add extracted page images to the EPUB and return the number embedded."""
+def _paragraph_records(chapter_bytes: bytes) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for match in _PARAGRAPH_RE.finditer(chapter_bytes):
+        attributes = match.group(2)
+        page_match = _SOURCE_PAGE_RE.search(attributes)
+        bbox_match = _SOURCE_BBOX_RE.search(attributes)
+        id_match = _ID_RE.search(attributes)
+        if not (page_match and bbox_match and id_match):
+            continue
+        try:
+            page_number = int(page_match.group(1))
+            bbox = tuple(float(value) for value in bbox_match.group(1).decode("ascii").split(","))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if len(bbox) != 4:
+            continue
+        x0, y0, x1, y1 = bbox
+        if not (0 <= x0 <= x1 <= 1 and 0 <= y0 <= y1 <= 1):
+            continue
+        records.append({
+            "page": page_number,
+            "bbox": bbox,
+            "id": id_match.group(1).decode("ascii"),
+        })
+    return records
+
+
+def _select_anchor(
+    image: PageImage, records: list[dict[str, object]]
+) -> str | None:
+    """Anchor only when the image fits wholly in a clear vertical text gap."""
+    page_records = [
+        record for record in records if record["page"] == image.page_number
+    ]
+    if not page_records:
+        return None
+
+    image_top, image_bottom = image.bbox[1], image.bbox[3]
+    preceding = [
+        record for record in page_records
+        if record["bbox"][3] <= image_top + 0.002
+    ]
+    following = [
+        record for record in page_records
+        if record["bbox"][1] >= image_bottom - 0.002
+    ]
+    if not preceding:
+        return None
+
+    previous = max(preceding, key=lambda record: record["bbox"][3])
+    next_record = min(following, key=lambda record: record["bbox"][1]) if following else None
+
+    # Do not anchor when the image overlaps any text paragraph vertically.
+    for record in page_records:
+        if record is previous or record is next_record:
+            continue
+        top, bottom = record["bbox"][1], record["bbox"][3]
+        if max(top, image_top) < min(bottom, image_bottom) - 0.002:
+            return None
+
+    if image_top < previous["bbox"][3] - 0.002:
+        return None
+    if next_record is not None and image_bottom > next_record["bbox"][1] + 0.002:
+        return None
+    return str(previous["id"])
+
+
+def _figure_markup(image: PageImage) -> bytes:
+    href = image.source_path
+    alt = f"Image from source PDF page {image.page_number}"
+    return (
+        '<figure class="pdf-illustration">'
+        f'<img src={quoteattr(href)} alt={quoteattr(alt)}/>'
+        f'<figcaption>Source PDF page {image.page_number}</figcaption>'
+        '</figure>'
+    ).encode("utf-8")
+
+
+def embed_pdf_images(
+    epub_path: Path | str, workspace: JobWorkspace, *, total_pages: int
+) -> int:
+    """Embed extracted images inline at safe anchors; append uncertain images."""
     assets = _load_assets(workspace, total_pages)
     if not assets:
         return 0
@@ -106,50 +192,87 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
             if "OEBPS/content.opf" not in info_by_name:
                 raise EpubImageEmbeddingError("Generated EPUB has no package document")
 
-            opf_info = info_by_name["OEBPS/content.opf"]
-            opf_root = ET.fromstring(source.read(opf_info))
+            opf_root = ET.fromstring(source.read(info_by_name["OEBPS/content.opf"]))
             manifest = opf_root.find(f"{{{_OPF_NS}}}manifest")
             spine = opf_root.find(f"{{{_OPF_NS}}}spine")
             if manifest is None or spine is None:
                 raise EpubImageEmbeddingError("Generated EPUB has an invalid package manifest or spine")
 
-            item_by_id = {item.get("id"): item for item in manifest.findall(f"{{{_OPF_NS}}}item")}
-            spine_refs = spine.findall(f"{{{_OPF_NS}}}itemref")
-            last_ref = spine_refs[-1].get("idref") if spine_refs else None
-            last_item = item_by_id.get(last_ref)
-            if last_item is None:
-                raise EpubImageEmbeddingError("Generated EPUB has no final reading-order document")
-            chapter_path = "OEBPS/" + last_item.get("href", "")
-            chapter_info = info_by_name.get(chapter_path)
-            if chapter_info is None:
-                raise EpubImageEmbeddingError("Final EPUB chapter is missing")
+            chapter_paths = [
+                "OEBPS/" + item.get("href", "")
+                for itemref in spine.findall(f"{{{_OPF_NS}}}itemref")
+                if (item := next(
+                    (entry for entry in manifest.findall(f"{{{_OPF_NS}}}item")
+                     if entry.get("id") == itemref.get("idref")),
+                    None,
+                )) is not None
+                and item.get("media-type") == "application/xhtml+xml"
+                and "OEBPS/" + item.get("href", "") in info_by_name
+            ]
+            if not chapter_paths:
+                raise EpubImageEmbeddingError("Generated EPUB has no chapter documents")
 
-            chapter_bytes = source.read(chapter_info)
-            if _XHTML_END not in chapter_bytes:
-                raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
+            chapter_updates: dict[str, bytes] = {
+                path: source.read(info_by_name[path]) for path in chapter_paths
+            }
+            chapter_records = {
+                path: _paragraph_records(data)
+                for path, data in chapter_updates.items()
+            }
+            anchors: dict[str, list[PageImage]] = {}
+            appendix: list[PageImage] = []
 
-            figure_markup: list[str] = ['<h2>Illustrations</h2>']
-            image_entries: list[tuple[str, Path]] = []
-            for index, (page_number, href, media_type, asset_path) in enumerate(assets, start=1):
+            for index, (image, _asset_path) in enumerate(assets, start=1):
+                anchor_path = None
+                anchor_id = None
+                for path in chapter_paths:
+                    anchor = _select_anchor(image, chapter_records[path])
+                    if anchor is not None:
+                        anchor_path, anchor_id = path, anchor
+                        break
+                if anchor_path is None or anchor_id is None:
+                    appendix.append(image)
+                else:
+                    anchors.setdefault(anchor_path + "#" + anchor_id, []).append(image)
+
                 image_id = f"pdf-image-{index:04d}"
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", {
                     "id": image_id,
-                    "href": href,
-                    "media-type": media_type,
+                    "href": image.source_path,
+                    "media-type": image.media_type,
                 }))
-                image_entries.append(("OEBPS/" + href, asset_path))
-                alt = f"Image from source PDF page {page_number}"
-                figure_markup.append(
-                    '<figure class="pdf-illustration">'
-                    f'<img src={quoteattr(href)} alt={quoteattr(alt)}/>'
-                    f'<figcaption>Source PDF page {page_number}</figcaption>'
-                    '</figure>'
+
+            # Insert each anchored figure immediately after its source paragraph.
+            for anchor_key, images in anchors.items():
+                chapter_path, anchor_id = anchor_key.split("#", 1)
+                data = chapter_updates[chapter_path]
+                escaped_id = re.escape(anchor_id.encode("ascii"))
+                pattern = re.compile(
+                    rb'(<(?:p|h2|h3)\b(?=[^>]*\bid="' + escaped_id
+                    + rb'")[^>]*>.*?</(?:p|h2|h3)>)',
+                    re.DOTALL,
+                )
+                markup = b"\n" + b"\n".join(_figure_markup(image) for image in images)
+                data, count = pattern.subn(lambda match: match.group(1) + markup, data, count=1)
+                if count != 1:
+                    raise EpubImageEmbeddingError("Could not locate an image's source paragraph in the EPUB")
+                chapter_updates[chapter_path] = data
+
+            if appendix:
+                last_path = chapter_paths[-1]
+                data = chapter_updates[last_path]
+                if _XHTML_END not in data:
+                    raise EpubImageEmbeddingError("Final EPUB chapter has no content section")
+                appendix_markup = (
+                    b"\n<h2>Illustrations</h2>\n"
+                    + b"\n".join(_figure_markup(image) for image in appendix)
+                    + b"\n"
+                )
+                chapter_updates[last_path] = data.replace(
+                    _XHTML_END, appendix_markup + _XHTML_END, 1
                 )
 
-            insertion = ("\n" + "\n".join(figure_markup) + "\n").encode("utf-8")
-            chapter_bytes = chapter_bytes.replace(_XHTML_END, insertion + _XHTML_END, 1)
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
-
             css_info = info_by_name.get("OEBPS/styles.css")
             css_data = None
             if css_info is not None:
@@ -171,21 +294,19 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
                         continue
                     if name == "OEBPS/content.opf":
                         target.writestr(info, opf_bytes)
-                    elif name == chapter_path:
-                        target.writestr(info, chapter_bytes)
+                    elif name in chapter_updates:
+                        target.writestr(info, chapter_updates[name])
                     elif name == "OEBPS/styles.css" and css_data is not None:
                         target.writestr(info, css_data)
                     else:
-                        # Copy unchanged members incrementally; do not retain the
-                        # whole EPUB's uncompressed payloads in worker memory.
                         with source.open(info, "r") as input_stream, target.open(
                             info, "w"
                         ) as output_stream:
                             shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
 
-                for name, asset_path in image_entries:
+                for image, asset_path in assets:
                     with asset_path.open("rb") as image_stream, target.open(
-                        name, "w", force_zip64=True
+                        "OEBPS/" + image.source_path, "w", force_zip64=True
                     ) as archive_stream:
                         shutil.copyfileobj(image_stream, archive_stream, length=1024 * 1024)
 
