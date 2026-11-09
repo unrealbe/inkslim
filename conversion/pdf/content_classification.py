@@ -8,13 +8,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import PageAnalysis, PageDecision
+from .models import PageAnalysis
 from .images import PageImages
 
 _ADVERT_TERMS = re.compile(
     r"\b(?:newsletter|subscribe|subscription|sign up|follow us|"
-    r"visit our|www\.|http[s]?://|buy now|order now|discover more|"
-    r"read more|available now|advertisement)\b",
+    r"visit our|www\.|http[s]?://|buy now|order now|"
+    r"advertisement)\b",
     re.IGNORECASE,
 )
 _MIN_BODY_WORDS = 20
