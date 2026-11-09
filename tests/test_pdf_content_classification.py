@@ -63,7 +63,13 @@ def test_promotional_language_and_images_is_advert_candidate():
 
 def test_incomplete_image_detection_caps_confidence():
     incomplete = PageImages(3, (), ("IMAGE_OBJECT_SCAN_FAILED",), None)
-    result = classify_page_content(_analysis(page=3), incomplete)
+    result = classify_page_content(
+        _analysis(page=3, words=120, native=True, decision=PageDecision.USE_NATIVE),
+        incomplete,
+        recognized_text=" ".join(["Chapter"] * 120),
+        text_source="native",
+    )
+    assert result["type"] == "text"
     assert result["confidence"] <= 0.45
     assert "Image-object detection is incomplete" in result["reasons"]
 
