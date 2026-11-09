@@ -74,7 +74,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
@@ -288,3 +288,113 @@ def test_quality_report_flags_missing_image_checkpoints(tmp_path):
     ).read_text(encoding="utf-8"))
     assert report["images"]["detection_complete"] is False
     assert report["images"]["missing_checkpoint_pages"] == [1]
+
+
+
+def test_quality_report_detects_only_byte_identical_cover_images_without_removing_them(tmp_path):
+    source = tmp_path / "duplicate-cover.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    cover_bytes = b"\x89PNG\r\n\x1a\n" + b"same extracted cover asset bytes"
+    first_asset = workspace.root / "images/000001-0001.png"
+    duplicate_asset = workspace.root / "images/000002-0001.png"
+    non_duplicate_asset = workspace.root / "images/000003-0001.png"
+    first_asset.parent.mkdir(parents=True, exist_ok=True)
+    first_asset.write_bytes(cover_bytes)
+    duplicate_asset.write_bytes(cover_bytes)
+    non_duplicate_asset.write_bytes(b"\x89PNG\r\n\x1a\n" + b"same visual subject, different extracted bytes")
+
+    cover = PageImage(
+        1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
+        "image/png", "images/000001-0001.png", 1.0,
+    )
+    duplicate = PageImage(
+        2, 1, (0.1, 0.1, 0.9, 0.9), 100, 100,
+        "image/png", "images/000002-0001.png", 0.64,
+    )
+    workspace.save_page_images(PageImages(1, (cover,), detected_count=1))
+    workspace.save_page_images(PageImages(2, (duplicate,), detected_count=1))
+    workspace.save_page_images(PageImages(3, (
+        PageImage(
+            3, 1, (0.1, 0.1, 0.9, 0.9), 100, 100,
+            "image/png", "images/000003-0001.png", 0.64,
+        ),
+    ), detected_count=1))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=1, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=2, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=3, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+
+    report_path = build_quality_report(job, workspace, total_pages=3)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    duplicate_report = report["images"]["duplicate_cover_detection"]
+
+    assert report["schema_version"] == 5
+    assert duplicate_report == {
+        "status": "complete",
+        "method": "sha256_exact_file_bytes",
+        "cover_candidate": {
+            "page_number": 1,
+            "image_index": 1,
+            "coverage": 1.0,
+            "classification_confidence": 0.78,
+        },
+        "duplicate_count": 1,
+        "matches": [{"page_number": 2, "image_index": 1}],
+        "removed_count": 0,
+        "automatic_removal_enabled": False,
+    }
+    assert first_asset.read_bytes() == cover_bytes
+    assert duplicate_asset.read_bytes() == cover_bytes
+    assert non_duplicate_asset.read_bytes() != cover_bytes
+
+
+def test_duplicate_cover_detection_is_incomplete_when_first_page_image_checkpoint_is_partial(tmp_path):
+    source = tmp_path / "partial-cover.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    cover_path = workspace.root / "images/000001-0001.png"
+    cover_path.parent.mkdir(parents=True, exist_ok=True)
+    cover_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"cover bytes")
+    workspace.save_page_images(PageImages(1, (
+        PageImage(
+            1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
+            "image/png", "images/000001-0001.png", 1.0,
+        ),
+    ), detected_count=2))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=1, width=612, height=792, character_count=0,
+        word_count=0, image_count=1, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+    workspace.save_page_images(PageImages(2, (), detected_count=0))
+    workspace.save_page_analysis(PageAnalysis(
+        page_number=2, width=612, height=792, character_count=0,
+        word_count=0, image_count=0, has_native_text=False,
+        native_text_quality=None, decision=PageDecision.EMPTY,
+    ))
+
+    report = json.loads(build_quality_report(
+        job, workspace, total_pages=2
+    ).read_text(encoding="utf-8"))
+    duplicate_report = report["images"]["duplicate_cover_detection"]
+    assert duplicate_report["status"] == "incomplete"
+    assert duplicate_report["duplicate_count"] == 0
+    assert duplicate_report["removed_count"] == 0
