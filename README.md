@@ -188,7 +188,7 @@ Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned b
 
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
-The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are placed inline after a source text block when page geometry provides a clear, bounded anchor. Images without a reliable anchor remain in a labelled Illustrations section at the end of the book. Semantic page classification is now included as diagnostic metadata in the quality report, with a page-type candidate, confidence score and evidence. It does not yet change OCR, image placement or image inclusion; cover selection and duplicate-cover handling remain future work.
+The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are placed inline after a source text block when page geometry provides a clear, bounded anchor. Images without a reliable anchor remain in a labelled Illustrations section at the end of the book. Semantic page classification is included in the quality report and guides conservative image handling: a high-confidence first-page cover candidate is marked as the EPUB cover, while images from advertisement candidates are retained in a separate Promotional material section rather than placed inline. No image is discarded; uncertain images keep the existing inline/Illustrations fallback. OCR is unchanged, and duplicate-cover removal remains future work.
 
 ### PDF settings
 
@@ -343,11 +343,11 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Use the new page-classification diagnostics to guide semantic image selection, cover selection and duplicate-cover handling. Geometry-based inline placement is implemented; uncertain images remain in a labelled Illustrations section.
+1. Improve semantic image selection using page classifications. High-confidence cover candidates are marked in EPUB metadata and advertisement-candidate images are retained in a separate section. Exact duplicate-cover detection/removal remains future work.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
-Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are placed immediately after a source text block (paragraph or heading) only when the image fits in a clear vertical gap between two text blocks on the same source page. Images without a bounded, unambiguous text anchor remain in a labelled Illustrations section. Page classification now estimates text, scanned text, mixed content, cover candidates, illustration candidates and advertisement candidates. Pages without text or embedded image objects remain unknown because vector drawing content is not inspected. Each estimate includes confidence and reasons. These are diagnostics only: the classifier does not alter OCR or suppress images. Cover selection and duplicate-cover handling are not implemented.
+Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are placed immediately after a source text block (paragraph or heading) only when the image fits in a clear vertical gap between two text blocks on the same source page. Images without a bounded, unambiguous text anchor remain in a labelled Illustrations section. Page classification now estimates text, scanned text, mixed content, cover candidates, illustration candidates and advertisement candidates. Pages without text or embedded image objects remain unknown because vector drawing content is not inspected. Each estimate includes confidence and reasons. Classification does not alter OCR or discard images. A high-confidence first-page cover candidate is marked using EPUB cover metadata; advertisement-candidate images are kept in a separate Promotional material section. Low-confidence candidates retain the existing safe fallback. Duplicate-cover detection/removal is not implemented.
 
 ### Persistent data
 
@@ -488,14 +488,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification is reported as diagnostic metadata; cover selection and duplicate-cover handling remain in development.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: high-confidence first-page cover candidates are marked in EPUB metadata, and advertisement-candidate images are preserved in a separate section. Duplicate-cover removal remains in development.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification is available as diagnostic metadata; cover selection and duplicate-cover handling remain in development. Automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them; duplicate-cover removal remains in development. Automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 
