@@ -74,7 +74,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
@@ -96,6 +96,10 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["pages"][2]["result"] is None
     assert report["pages"][2]["content_classification"]["type"] == "unknown"
     assert report["summary"]["page_content_types"] == {"mixed": 2, "unknown": 1}
+    assert report["text_fidelity"]["status"] == "available"
+    assert report["text_fidelity"]["pages_compared"] == 2
+    assert report["pages"][0]["text_fidelity"]["source_token_count"] == 3
+    assert report["pages"][0]["text_fidelity"]["reconstructed_token_count"] == 5
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
 
