@@ -11,7 +11,12 @@ from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobProcessingError
 from .builder import EpubBuildError, build_epub
-from .image_embedding import EpubImageEmbeddingError, embed_pdf_images, embedded_image_count
+from .image_embedding import (
+    EpubImageEmbeddingError,
+    embed_pdf_images,
+    embedded_image_count,
+    has_current_image_layout,
+)
 from .validation import validate_epub
 
 logger = logging.getLogger(__name__)
@@ -51,7 +56,11 @@ def generate_job_epub(
         for page in range(1, total_pages + 1)
         if (checkpoint := workspace.load_page_images(page)) is not None
     )
-    if is_valid_epub(destination) and embedded_image_count(destination) == expected_images:
+    if (
+        is_valid_epub(destination)
+        and embedded_image_count(destination) == expected_images
+        and (expected_images == 0 or has_current_image_layout(destination))
+    ):
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
         return destination
     if store and store.is_cancel_requested(job.id):
