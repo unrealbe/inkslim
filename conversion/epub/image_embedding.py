@@ -80,6 +80,19 @@ def _load_assets(
     return assets
 
 
+def has_current_image_layout(epub_path: Path | str) -> bool:
+    """Return whether an EPUB was built with the source-anchor image layout."""
+    try:
+        with zipfile.ZipFile(epub_path, "r") as archive:
+            return any(
+                name.startswith("OEBPS/chapter_") and name.endswith(".xhtml")
+                and b"inkslim-image-layout:2" in archive.read(name)
+                for name in archive.namelist()
+            )
+    except (OSError, zipfile.BadZipFile, KeyError):
+        return False
+
+
 def embedded_image_count(epub_path: Path | str) -> int:
     """Count image resources in the EPUB's OEBPS/images directory."""
     try:
@@ -144,6 +157,8 @@ def _select_anchor(
 
     previous = max(preceding, key=lambda record: record["bbox"][3])
     next_record = min(following, key=lambda record: record["bbox"][1]) if following else None
+    if next_record is None:
+        return None
 
     # Do not anchor when the image overlaps any text paragraph vertically.
     for record in page_records:
@@ -215,6 +230,12 @@ def embed_pdf_images(
             chapter_updates: dict[str, bytes] = {
                 path: source.read(info_by_name[path]) for path in chapter_paths
             }
+            for path in chapter_paths:
+                chapter_updates[path] = chapter_updates[path].replace(
+                    b"</section>",
+                    b"<!-- inkslim-image-layout:2 -->\\n</section>",
+                    1,
+                )
             chapter_records = {
                 path: _paragraph_records(data)
                 for path, data in chapter_updates.items()
