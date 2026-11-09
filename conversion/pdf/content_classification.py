@@ -32,7 +32,7 @@ def classify_page_content(
     if words == 0:
         words = analysis.word_count
     has_text = words > 0 or analysis.has_native_text
-    image_count = len(images.images) if images is not None else None
+    image_count = images.detected_count if images is not None else analysis.image_count
     coverage = min(1.0, sum(item.coverage for item in images.images)) if images else 0.0
     max_coverage = max((item.coverage for item in images.images), default=0.0) if images else 0.0
     reasons: list[str] = []
@@ -95,7 +95,7 @@ def classify_page_content(
                 "native" if analysis.has_native_text else None
             ),
             "detected_image_count": image_count,
-            "extracted_image_count": len(images.images) if images else None,
+            "extracted_image_count": len(images.images) if images is not None else None,
             "image_coverage": round(coverage, 4),
             "largest_image_coverage": round(max_coverage, 4),
             "technical_ocr_decision": analysis.decision.value,
