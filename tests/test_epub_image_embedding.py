@@ -129,5 +129,5 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
         generator.generate_job_epub(job, workspace, total_pages=1)
 
     destination = tmp_path / "book-12345678.epub"
-    assert exc_info.value.code == "STORAGE_ERROR"
+    assert exc_info.value.error_code == "STORAGE_ERROR"
     assert not destination.exists()
