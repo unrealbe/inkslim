@@ -22,9 +22,9 @@ def _analysis(page_number: int, decision: PageDecision) -> PageAnalysis:
         page_number=page_number,
         width=612,
         height=792,
-        character_count=120,
-        word_count=22,
-        image_count=1,
+        character_count=0 if decision is PageDecision.EMPTY else 120,
+        word_count=0 if decision is PageDecision.EMPTY else 22,
+        image_count=0 if decision is PageDecision.EMPTY else 1,
         has_native_text=decision is PageDecision.USE_NATIVE,
         native_text_quality=0.95 if decision is PageDecision.USE_NATIVE else None,
         decision=decision,
@@ -74,7 +74,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
@@ -94,6 +94,8 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["summary"]["mean_ocr_confidence"] == 96.0
     assert report["pages"][0]["native_ocr_similarity"] == 0.934
     assert report["pages"][2]["result"] is None
+    assert report["pages"][2]["content_classification"]["type"] == "unknown"
+    assert report["summary"]["page_content_types"] == {"mixed": 2, "unknown": 1}
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
 
