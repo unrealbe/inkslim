@@ -137,13 +137,22 @@ def _select_anchor(
     image: PageImage, records: list[dict[str, object]]
 ) -> str | None:
     """Anchor only when the image fits wholly in a clear vertical text gap."""
-    page_records = [
-        record for record in records if record["page"] == image.page_number
-    ]
-    if not page_records:
+    image_x0, image_top, image_x1, image_bottom = image.bbox
+    image_width = image_x1 - image_x0
+    if image_width <= 0:
         return None
 
-    image_top, image_bottom = image.bbox[1], image.bbox[3]
+    page_records = []
+    for record in records:
+        if record["page"] != image.page_number:
+            continue
+        x0, _y0, x1, _y1 = record["bbox"]
+        overlap = max(0.0, min(x1, image_x1) - max(x0, image_x0))
+        narrower_width = min(image_width, x1 - x0)
+        if narrower_width > 0 and overlap / narrower_width >= 0.25:
+            page_records.append(record)
+    if not page_records:
+        return None
     preceding = [
         record for record in page_records
         if record["bbox"][3] <= image_top + 0.002
@@ -170,7 +179,12 @@ def _select_anchor(
 
     if image_top < previous["bbox"][3] - 0.002:
         return None
-    if next_record is not None and image_bottom > next_record["bbox"][1] + 0.002:
+    if image_bottom > next_record["bbox"][1] + 0.002:
+        return None
+
+    previous_center = (previous["bbox"][0] + previous["bbox"][2]) / 2
+    next_center = (next_record["bbox"][0] + next_record["bbox"][2]) / 2
+    if abs(previous_center - next_center) > 0.18:
         return None
     return str(previous["id"])
 
