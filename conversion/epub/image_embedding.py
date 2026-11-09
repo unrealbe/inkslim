@@ -289,7 +289,7 @@ def embed_pdf_images(
                     cover_manifest_id = item_id
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", attributes))
             if cover_manifest_id and metadata is not None:
-                metadata.append(ET.Element("meta", {
+                metadata.append(ET.Element(f"{{_OPF_NS}}meta", {
                     "name": "cover",
                     "content": cover_manifest_id,
                 }))
