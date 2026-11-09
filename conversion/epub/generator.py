@@ -88,7 +88,11 @@ def generate_job_epub(
                               message="Assembling EPUB document...")
     try:
         build_epub(destination=destination, metadata=doc.metadata, chapters=doc.to_epub_chapters())
-        embed_pdf_images(destination, workspace, total_pages=total_pages)
+        try:
+            embed_pdf_images(destination, workspace, total_pages=total_pages)
+        except OSError:
+            destination.unlink(missing_ok=True)
+            raise
     except EpubBuildError as exc:
         raise JobProcessingError("EPUB_BUILD_FAILED", f"EPUB generation failed: {exc}") from exc
     except EpubImageEmbeddingError as exc:
