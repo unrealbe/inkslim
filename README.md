@@ -39,6 +39,7 @@ It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are 
 - **Self-hosted:** Docker image for linux/amd64 and linux/arm64.
 - **Optional HTTP Basic Authentication** and health-check endpoint.
 - **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
+- **Modern dark dashboard:** a responsive workspace with sidebar navigation, clear upload flow and conversion history.
 
 ## Which mode should I use?
 
@@ -160,6 +161,8 @@ For example, 8125:8080 makes Inkslim available at http://NAS-IP:8125/. The conta
 
 ## Using the web interface
 
+The web interface uses a responsive dark dashboard with navigation for the main workspace and conversion histories. The upload area is shared by both operations; choose whether to optimize files or convert PDFs to EPUB before adding files.
+
 ### EPUB settings
 
 The EPUB panel contains the following controls:
@@ -180,8 +183,8 @@ Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned b
 
 | Language | OCR selection |
 |---|---|
-| Automatic | Dutch + English |
-| Dutch / English | Single-language OCR |
+| English (default) | English OCR |
+| Dutch / French / German | Single-language OCR |
 | Dutch + English | Both language models |
 | French / German | Single-language OCR |
 | French + English | Both language models |
@@ -419,7 +422,7 @@ The web application exposes a small API:
 
 ### PDF-to-EPUB conversion API
 
-The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field accepts `auto` (default), `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`.
+The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field defaults to `eng` and accepts `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`. The web interface defaults to English and exposes explicit language choices; it does not offer automatic language selection.
 
 - `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**. A full storage admission quota returns **507** (`STORAGE_QUOTA_EXCEEDED`).
 - `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
