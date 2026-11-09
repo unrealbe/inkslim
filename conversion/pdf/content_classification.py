@@ -13,7 +13,7 @@ from .images import PageImages
 
 _ADVERT_TERMS = re.compile(
     r"\b(?:newsletter|subscribe|subscription|sign up|follow us|"
-    r"visit our|www\\.|http[s]?://|buy now|order now|discover more|"
+    r"visit our|www\.|http[s]?://|buy now|order now|discover more|"
     r"read more|available now|advertisement)\b",
     re.IGNORECASE,
 )
