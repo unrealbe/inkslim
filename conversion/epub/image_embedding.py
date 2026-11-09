@@ -179,7 +179,7 @@ def embed_pdf_images(epub_path: Path | str, workspace: JobWorkspace, *, total_pa
                         # Copy unchanged members incrementally; do not retain the
                         # whole EPUB's uncompressed payloads in worker memory.
                         with source.open(info, "r") as input_stream, target.open(
-                            info, "w", force_zip64=True
+                            info, "w"
                         ) as output_stream:
                             shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
 
