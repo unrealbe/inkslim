@@ -495,7 +495,7 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them; duplicate-cover removal remains in development. Automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them. Exact duplicate-cover diagnostics compare original extracted bytes by SHA-256 and report matches without deleting images; near-duplicate matching and removal remain future work. Automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 
