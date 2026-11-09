@@ -61,6 +61,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
 
     workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
     workspace.save_page_result(_result(1, TextSource.TESSERACT))
+    workspace.save_page_cleaned_paragraphs(1, [{"text": "recognized sample text"}])
     workspace.save_page_analysis(_analysis(2, PageDecision.OCR_REQUIRED))
     workspace.save_page_result(_result(2, TextSource.TESSERACT))
     workspace.save_page_analysis(_analysis(3, PageDecision.EMPTY))
@@ -99,7 +100,8 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["text_fidelity"]["status"] == "available"
     assert report["text_fidelity"]["pages_compared"] == 2
     assert report["pages"][0]["text_fidelity"]["source_token_count"] == 3
-    assert report["pages"][0]["text_fidelity"]["reconstructed_token_count"] == 5
+    assert report["pages"][0]["text_fidelity"]["reconstructed_token_count"] == 3
+    assert report["pages"][0]["text_fidelity"]["token_retention"] == 1.0
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
 
