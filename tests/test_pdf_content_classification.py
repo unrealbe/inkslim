@@ -13,12 +13,12 @@ def _analysis(page=1, words=0, native=False, decision=PageDecision.OCR_REQUIRED)
     )
 
 
-def _images(*coverages):
+def _images(*coverages, page=1):
     return PageImages(
-        page_number=1,
+        page_number=page,
         images=tuple(
-            PageImage(1, index, (0.05, 0.05, 0.95, 0.95), 100, 100,
-                      "image/png", f"images/000001-{index:04d}.png", coverage)
+            PageImage(page, index, (0.0, 0.0, coverage, 1.0), 100, 100,
+                      "image/png", f"images/{page:06d}-{index:04d}.png", coverage)
             for index, coverage in enumerate(coverages, start=1)
         ),
         detected_count=len(coverages),
@@ -34,7 +34,7 @@ def test_first_page_dominant_artwork_is_only_a_cover_candidate():
 
 def test_ocr_text_page_is_scanned_text_not_graphic():
     result = classify_page_content(
-        _analysis(page=4), _images(0.9),
+        _analysis(page=4), _images(0.9, page=4),
         recognized_text=" ".join(["Readable"] * 45),
         text_source="tesseract",
     )
@@ -44,7 +44,7 @@ def test_ocr_text_page_is_scanned_text_not_graphic():
 def test_text_and_illustration_is_mixed():
     result = classify_page_content(
         _analysis(page=8, words=120, native=True, decision=PageDecision.USE_NATIVE),
-        _images(0.25),
+        _images(0.25, page=8),
         recognized_text=" ".join(["Chapter"] * 120),
         text_source="native",
     )
@@ -54,7 +54,7 @@ def test_text_and_illustration_is_mixed():
 def test_promotional_language_and_images_is_advert_candidate():
     result = classify_page_content(
         _analysis(page=30, words=35, native=True, decision=PageDecision.USE_NATIVE),
-        _images(0.2, 0.1),
+        _images(0.2, 0.1, page=30),
         recognized_text="Newsletter subscribe visit our website for more information",
         text_source="native",
     )
@@ -74,11 +74,21 @@ def test_incomplete_image_detection_caps_confidence():
     assert "Image-object detection is incomplete" in result["reasons"]
 
 
-def test_empty_page_classification():
+def test_page_without_text_or_image_objects_is_not_assumed_empty():
     result = classify_page_content(
         _analysis(page=9, decision=PageDecision.EMPTY), PageImages(9, detected_count=0)
     )
-    assert result["type"] == "empty"
+    assert result["type"] == "unknown"
+    assert result["confidence"] < 0.5
+    assert "vector drawing content is not inspected" in result["reasons"][0]
+
+
+def test_overlapping_image_rectangles_do_not_double_count_coverage():
+    result = classify_page_content(
+        _analysis(page=10),
+        _images(0.5, 0.5, page=10),
+    )
+    assert result["signals"]["image_coverage"] == 0.5
 
 
 
