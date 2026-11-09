@@ -73,3 +73,15 @@ def test_empty_page_classification():
         _analysis(page=9, decision=PageDecision.EMPTY), PageImages(9, detected_count=0)
     )
     assert result["type"] == "empty"
+
+
+
+def test_empty_ocr_result_does_not_reuse_rejected_native_text():
+    result = classify_page_content(
+        _analysis(page=5, words=35, native=True),
+        PageImages(5, detected_count=0),
+        recognized_text="",
+        text_source="tesseract",
+    )
+    assert result["type"] == "empty"
+    assert result["signals"]["text_word_count"] == 0
