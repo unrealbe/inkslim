@@ -315,4 +315,7 @@ def test_image_without_bounded_text_gap_stays_in_appendix(tmp_path):
     embed_pdf_images(epub, workspace, total_pages=1)
     with zipfile.ZipFile(epub) as archive:
         chapter = archive.read("OEBPS/chapter_0001.xhtml")
-        assert chapter.index(b"Only paragraph.") < chapter.index(b"<h2>Illustrations</h2>")
+        appendix = chapter.index(b"<h2>Illustrations</h2>")
+        figure = chapter.index(b'<figure class="pdf-illustration">', appendix)
+        image_src = chapter.index(f'src="{relative_path}"'.encode("utf-8"), figure)
+        assert chapter.index(b"Only paragraph.") < appendix < figure < image_src
