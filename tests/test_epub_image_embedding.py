@@ -131,3 +131,35 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
     destination = tmp_path / "book-12345678.epub"
     assert exc_info.value.error_code == "STORAGE_ERROR"
     assert not destination.exists()
+
+
+def test_corrupt_image_asset_is_rejected_before_embedding(tmp_path):
+    import pytest
+
+    from conversion.epub.image_embedding import EpubImageEmbeddingError
+
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Valid PNG signature, but truncated before a decodable image payload.
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR")
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), 80, 60,
+            "image/png", relative_path, 0.64,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "book.epub",
+        EpubMetadata(title="Corrupt image"),
+        [Chapter("Chapter 1", [Block("p", "Readable text.")])],
+    )
+    before = epub.read_bytes()
+    with pytest.raises(EpubImageEmbeddingError, match="undecodable"):
+        embed_pdf_images(epub, workspace, total_pages=1)
+    assert epub.read_bytes() == before
