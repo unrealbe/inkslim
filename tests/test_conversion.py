@@ -117,21 +117,21 @@ def test_create_job_persists_input_and_workspace_layout(store, tmp_path):
     assert manifest["language"] == "nld+eng"
 
 
-def test_create_job_defaults_to_automatic_language_selection(store, tmp_path):
-    source = tmp_path / "automatic-language.pdf"
+def test_create_job_defaults_to_english_language_selection(store, tmp_path):
+    source = tmp_path / "english-language.pdf"
     source.write_bytes(b"%PDF-1.7 fake test input")
     job = store.create_job(source, source.name)
     workspace = store.workspace(job.id)
     manifest = json.loads(workspace.manifest_path.read_text(encoding="utf-8"))
 
-    assert job.language == "auto"
-    assert manifest["language"] == "auto"
+    assert job.language == "eng"
+    assert manifest["language"] == "eng"
 
 
 def test_create_job_rejects_unsupported_language_selection(store, tmp_path):
     source = tmp_path / "unsupported-language.pdf"
     source.write_bytes(b"%PDF-1.7 fake test input")
-    with pytest.raises(ValueError, match="language must be auto"):
+    with pytest.raises(ValueError, match="language must be nld"):
         store.create_job(source, source.name, language="italian")
 
 

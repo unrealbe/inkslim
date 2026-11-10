@@ -597,8 +597,7 @@ INDEX_HTML = """<!doctype html>
       --bg:#151615; --card:#1e201f; --text:#ecebe6; --muted:#9a9890;
       --line:#34372f; --accent:#5fb89f; --accent-text:#0e1512; --drop:#1b2924;
       --err:#f2a29b;
-    }
-  }
+    }  }
   * { box-sizing:border-box; }
   body {
     margin:0; background:var(--bg); color:var(--text);
@@ -704,15 +703,27 @@ INDEX_HTML = """<!doctype html>
   #clear-history:disabled { opacity:.5; cursor:not-allowed; }
   @media (max-width:440px) { .grid { grid-template-columns:1fr; } }
 </style>
+<link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-<main>
-  <header class="brand">
-    <img src="/static/inkslim-icon-192.png" alt="" width="52" height="52">
-    <div>
-      <h1>Inkslim</h1>
-      <p class="sub">Shrink EPUB and PDF files for your e-reader.</p>
-    </div>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Main navigation">
+    <a class="sidebar-brand" href="#workspace"><img src="/static/inkslim-icon-192.png" alt=""><span>inkslim<small>BOOK WORKSPACE</small></span></a>
+    <div class="sidebar-label">WORKSPACE</div>
+    <nav class="sidebar-nav">
+      <a class="active" href="#drop"><span class="nav-icon">⌂</span> Overview</a>
+      <a href="#conversion-results"><span class="nav-icon">⇄</span> PDF to EPUB</a>
+      <a href="#results"><span class="nav-icon">▤</span> Optimization history</a>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span> Self-hosted and private</div>
+  </aside>
+  <div class="app-main">
+    <div class="topbar"><span>YOUR LIBRARY TOOLKIT</span><span class="topbar-status"><i></i> LOCAL PROCESSING</span></div>
+<main id="workspace">
+  <header class="page-heading">
+    <div class="eyebrow">OVERVIEW</div>
+    <h1>Your e-book workspace</h1>
+    <p class="sub">Optimize your books or turn PDFs into reflowable EPUBs.</p>
   </header>
 
   <div id="drop" class="card" tabindex="0" role="button" aria-label="Choose EPUB or PDF files">
@@ -721,8 +732,8 @@ INDEX_HTML = """<!doctype html>
     <input id="file" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" multiple hidden>
   </div>
 
-  <section class="card">
-    <label for="processing-action">What would you like to do?</label>
+  <section class="card operation-card" id="operation-card">
+    <label for="processing-action">Choose an operation</label>
     <select id="processing-action">
       <option value="shrink">Make smaller — optimize PDF or EPUB</option>
       <option value="convert">Convert PDF to EPUB — create a reflowable e-book</option>
@@ -730,12 +741,12 @@ INDEX_HTML = """<!doctype html>
     <div id="conversion-options" hidden>
       <label for="conversion-language">OCR language</label>
       <select id="conversion-language">
-        <option value="auto">Automatic (Dutch + English)</option>
-        <option value="nld">Dutch</option><option value="eng">English</option>
-        <option value="nld+eng">Dutch + English</option><option value="fra">French</option>
-        <option value="deu">German</option><option value="fra+eng">French + English</option>
+        <option value="eng" selected>English (default)</option>
+        <option value="nld">Dutch</option><option value="fra">French</option>
+        <option value="deu">German</option><option value="nld+eng">Dutch + English</option>
+        <option value="fra+eng">French + English</option>
       </select>
-      <p class="hint">Scanned pages are processed with OCR. Source-PDF illustrations are not included yet.</p>
+      <p class="hint">Scanned pages are processed with the selected OCR language. Extracted illustrations are preserved in the EPUB.</p>
     </div>
     <p class="hint" id="action-hint">PDF and EPUB files are optimized while preserving their original format.</p>
   </section>
@@ -813,6 +824,8 @@ INDEX_HTML = """<!doctype html>
     <ul id="list"></ul>
   </div>
 </main>
+  </div>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -1197,8 +1210,7 @@ async function refreshConversion(item) {
             conversionMeta(item,"Cancellation requested; stopping after the current page.");
           }
         } catch (error) {
-          conversionMeta(item,error.message,true);
-          cancel.disabled = false;
+          conversionMeta(item,error.message,true);          cancel.disabled = false;
         }
       });
       actions.appendChild(cancel);

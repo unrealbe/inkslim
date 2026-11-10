@@ -111,7 +111,7 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
     job = SimpleNamespace(
         id="12345678-1234-5678-1234-567812345678",
         input_name="book.pdf",
-        language="auto",
+        language="eng",
     )
     document = SimpleNamespace(
         metadata=SimpleNamespace(identifier=None),

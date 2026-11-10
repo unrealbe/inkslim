@@ -27,7 +27,7 @@ def _para(index, text, bbox=(0.1, 0.1, 0.9, 0.2)):
     }
 
 
-def _dummy_job(tmp_path, name="test-book.pdf", language="auto", job_id="11111111-1111-1111-1111-111111111111"):
+def _dummy_job(tmp_path, name="test-book.pdf", language="eng", job_id="11111111-1111-1111-1111-111111111111"):
     return Job(
         id=job_id,
         status=JobStatus.OCR,

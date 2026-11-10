@@ -20,7 +20,11 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'JSON report' in html
     assert 'id="conversion-drop"' not in html
     assert 'id="conversion-file"' not in html
-    assert 'value="auto"' in html
+    assert 'value="auto"' not in html
+    assert 'value="eng" selected' in html
+    assert '/static/dashboard.css' in html
+    assert 'class="sidebar"' in html
+    assert 'Your e-book workspace' in html
     assert 'value="nld"' in html
     assert 'value="eng"' in html
     assert 'value="fra"' in html
@@ -54,3 +58,13 @@ def test_existing_shrink_interface_remains_available():
     assert 'id="epub-settings"' in html
     assert 'id="pdf-settings"' in html
     assert 'xhr.open("POST","shrink")' in html
+
+
+def test_dashboard_stylesheet_is_served():
+    app.AUTH_USER = app.AUTH_PASS = ""
+    response = app.app.test_client().get("/static/dashboard.css")
+    assert response.status_code == 200
+    css = response.get_data(as_text=True)
+    assert ".app-shell" in css
+    assert ".sidebar" in css
+    assert "@media(max-width:760px)" in css

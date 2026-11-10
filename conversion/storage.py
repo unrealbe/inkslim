@@ -753,7 +753,7 @@ class JobStore:
         self,
         source_path: Path,
         input_name: str,
-        language: str = "auto",
+        language: str = "eng",
         *,
         expires_in: timedelta | None = None,
     ) -> Job:

@@ -6,11 +6,6 @@ from conversion.language import (
     ocr_languages_for_selection,
 )
 
-def test_auto_uses_dutch_and_english_models():
-    assert normalize_language_selection("auto") == "auto"
-    assert ocr_languages_for_selection("auto") == ["nld", "eng"]
-    assert epub_language_for_selection("auto") == "nl"
-
 @pytest.mark.parametrize(("selection", "expected"), [
     ("nld", ["nld"]), ("eng", ["eng"]), ("nld+eng", ["nld", "eng"]),
     ("fra", ["fra"]), ("deu", ["deu"]), ("fra+eng", ["fra", "eng"]),
@@ -25,7 +20,7 @@ def test_explicit_language_selection(selection, expected):
 def test_epub_language_for_selection(selection, expected_epub):
     assert epub_language_for_selection(selection) == expected_epub
 
-@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "auto+eng"])
+@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "auto", "auto+eng"])
 def test_rejects_unsupported_language_selection(selection):
     with pytest.raises(ValueError):
         normalize_language_selection(selection)

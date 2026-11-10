@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
-# Auto OCR uses both primary models; identification is a separate diagnostic step.
+# Language identification remains diagnostic metadata; OCR always uses the explicit job selection.
 DetectorFactory.seed = 0
 _SELECTIONS = {
-    "auto": ("nld", "eng"), "nld": ("nld",), "eng": ("eng",),
+    "nld": ("nld",), "eng": ("eng",),
     "nld+eng": ("nld", "eng"), "fra": ("fra",), "deu": ("deu",),
     "fra+eng": ("fra", "eng"),
 }
 _EPUB_LANGUAGES = {
-    "auto": "nl", "nld": "nl", "eng": "en", "nld+eng": "nl",
+    "nld": "nl", "eng": "en", "nld+eng": "nl",
     "fra": "fr", "deu": "de", "fra+eng": "fr",
 }
 _DETECTED = {"nl": "nld", "en": "eng", "fr": "fra", "de": "deu"}
@@ -30,7 +30,7 @@ def normalize_language_selection(value: str) -> str:
         raise ValueError("language must be a supported language selection")
     selection = value.strip().lower()
     if selection not in _SELECTIONS:
-        raise ValueError("language must be auto, nld, eng, nld+eng, fra, deu or fra+eng")
+        raise ValueError("language must be nld, eng, nld+eng, fra, deu or fra+eng")
     return selection
 
 def ocr_languages_for_selection(value: str) -> list[str]:

@@ -127,7 +127,7 @@ def create_conversion():
         return jsonify(error="Only PDF files are supported for conversion."), 400
 
     try:
-        language = normalize_language_selection(request.form.get("language", "auto"))
+        language = normalize_language_selection(request.form.get("language", "eng"))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 
