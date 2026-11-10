@@ -219,3 +219,35 @@ def test_same_source_filename_gets_distinct_job_outputs_and_identifiers(tmp_path
     assert outputs[0][1] == f"urn:uuid:{job_ids[0]}"
     assert outputs[1][1] == f"urn:uuid:{job_ids[1]}"
     assert outputs[0][1] != outputs[1][1]
+
+
+
+def test_epub_language_is_inferred_from_reconstructed_book_text(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-language")
+    workspace.create()
+    english = (
+        "The application processes every page of the book and reconstructs "
+        "the original paragraphs in their natural reading order. "
+    ) * 3
+    for page_number in (1, 2):
+        workspace.save_page_cleaned_paragraphs(page_number, [_para(1, english)])
+        workspace.save_page_structure(page_number, [])
+    workspace.save_structure_analysis({
+        "schema_version": 1,
+        "total_pages": 2,
+        "heading_count": 0,
+        "chapter_count": 0,
+        "chapters": [],
+    })
+
+    job = _dummy_job(tmp_path, name="english-book.pdf", language="nld+eng")
+    epub_path = generate_job_epub(job, workspace, total_pages=2)
+
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:language", namespaces=NS) == "en"
+
+    diagnostics = workspace.load_document_language_analysis()
+    assert diagnostics["language"] == "en"
+    assert diagnostics["method"] == "weighted_reconstructed_page_language"
+    assert diagnostics["supporting_pages"] == 2
