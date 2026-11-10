@@ -83,6 +83,7 @@ def generate_job_epub(
         is_valid_epub(destination)
         and embedded_image_count(destination) == expected_images
         and (expected_images == 0 or has_current_image_layout(destination))
+        and workspace.load_document_language_analysis() is not None
     ):
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
         return destination
