@@ -17,8 +17,9 @@ from .language import detect_page_language, ocr_languages_for_selection
 from .pdf.models import PageAnalysis, PageDecision
 from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
+from .text_fidelity import compare_text_fidelity, summarize_text_fidelity
 
-REPORT_SCHEMA_VERSION = 5
+REPORT_SCHEMA_VERSION = 6
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -244,6 +245,7 @@ def build_quality_report(
     sources: Counter[str] = Counter()
     qualities: Counter[str] = Counter()
     warning_count = 0
+    text_fidelity_pages: list[dict[str, Any]] = []
     confidence_values: list[float] = []
     pages_with_text = 0
     pages_without_text: list[int] = []
@@ -339,8 +341,14 @@ def build_quality_report(
         )
         content_classifications[page_number] = page["content_classification"]
         content_types[page["content_classification"]["type"]] += 1
+        recognized_text = (
+            "\n".join(block.text for block in result.blocks) if result is not None else ""
+        )
+        fidelity = compare_text_fidelity(recognized_text, page_text)
+        page["text_fidelity"] = fidelity
+        if fidelity["status"] != "no_source_text":
+            text_fidelity_pages.append(fidelity)
         if result is not None:
-            recognized_text = "\n".join(block.text for block in result.blocks)
             detected_language = detect_page_language(recognized_text)
             page["language"] = detected_language.to_dict() if detected_language else None
             page["result"] = {
@@ -364,6 +372,7 @@ def build_quality_report(
     image_stats["duplicate_cover_detection"] = _duplicate_cover_statistics(
         workspace, total_pages, content_classifications
     )
+    text_fidelity_stats = summarize_text_fidelity(text_fidelity_pages)
     source_path = Path(job.input_path)
     source_size = source_path.stat().st_size if source_path.is_file() else None
     output = Path(output_path) if output_path is not None else None
@@ -437,6 +446,7 @@ def build_quality_report(
             "chapter_count": structure["chapter_count"] if structure else 0,
         },
         "images": image_stats,
+        "text_fidelity": text_fidelity_stats,
         "output": {
             "format": "epub",
             "source_pdf_bytes": source_size,

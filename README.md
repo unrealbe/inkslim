@@ -301,12 +301,13 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 5 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 6 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
 - Embedded image count and bytes, alongside extraction counts and warnings. The report distinguishes extracted assets from images actually packaged in the EPUB.
 - Reconstructed chapter, paragraph, heading and word counts.
+- Text reconstruction fidelity diagnostics: per-page and aggregate token retention and token-sequence similarity between recognized page text and reconstructed paragraphs. These are diagnostic metrics only and never change or reject the EPUB.
 - Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
 - Text-page coverage across non-empty source pages.
 - Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
@@ -333,7 +334,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 5), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 6), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Exact duplicate-cover diagnostics under `images.duplicate_cover_detection`: evaluation status (`complete`, `incomplete` or `not_evaluated`), SHA-256 byte-comparison method, selected first-page cover candidate, matching later page/image indexes, and an explicit indication that no images were removed.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.

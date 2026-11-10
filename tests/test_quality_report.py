@@ -61,6 +61,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
 
     workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
     workspace.save_page_result(_result(1, TextSource.TESSERACT))
+    workspace.save_page_cleaned_paragraphs(1, [{"text": "recognized sample text"}])
     workspace.save_page_analysis(_analysis(2, PageDecision.OCR_REQUIRED))
     workspace.save_page_result(_result(2, TextSource.TESSERACT))
     workspace.save_page_analysis(_analysis(3, PageDecision.EMPTY))
@@ -74,7 +75,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
@@ -96,6 +97,11 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["pages"][2]["result"] is None
     assert report["pages"][2]["content_classification"]["type"] == "unknown"
     assert report["summary"]["page_content_types"] == {"mixed": 2, "unknown": 1}
+    assert report["text_fidelity"]["status"] == "available"
+    assert report["text_fidelity"]["pages_compared"] == 2
+    assert report["pages"][0]["text_fidelity"]["source_token_count"] == 3
+    assert report["pages"][0]["text_fidelity"]["reconstructed_token_count"] == 3
+    assert report["pages"][0]["text_fidelity"]["token_retention"] == 1.0
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
 
@@ -290,7 +296,6 @@ def test_quality_report_flags_missing_image_checkpoints(tmp_path):
     assert report["images"]["missing_checkpoint_pages"] == [1]
 
 
-
 def test_quality_report_detects_only_byte_identical_cover_images_without_removing_them(tmp_path):
     source = tmp_path / "duplicate-cover.pdf"
     source.write_bytes(b"%PDF-placeholder")
@@ -343,7 +348,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert duplicate_report == {
         "status": "complete",
         "method": "sha256_exact_file_bytes",
