@@ -296,7 +296,6 @@ def test_quality_report_flags_missing_image_checkpoints(tmp_path):
     assert report["images"]["missing_checkpoint_pages"] == [1]
 
 
-
 def test_quality_report_detects_only_byte_identical_cover_images_without_removing_them(tmp_path):
     source = tmp_path / "duplicate-cover.pdf"
     source.write_bytes(b"%PDF-placeholder")
@@ -349,7 +348,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert duplicate_report == {
         "status": "complete",
         "method": "sha256_exact_file_bytes",
