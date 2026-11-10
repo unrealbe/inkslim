@@ -317,14 +317,22 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     job = store.create_job(source, source.name)
     workspace = store.workspace(job.id)
 
-    cover_bytes = b"\x89PNG\r\n\x1a\n" + b"same extracted cover asset bytes"
     first_asset = workspace.root / "images/000001-0001.png"
     duplicate_asset = workspace.root / "images/000002-0001.png"
     non_duplicate_asset = workspace.root / "images/000003-0001.png"
     first_asset.parent.mkdir(parents=True, exist_ok=True)
+    cover_image = Image.new("L", (96, 96))
+    cover_image.putdata([x * 255 // 95 for y in range(96) for x in range(96)])
+    cover_buffer = BytesIO()
+    cover_image.save(cover_buffer, format="PNG")
+    cover_bytes = cover_buffer.getvalue()
     first_asset.write_bytes(cover_bytes)
     duplicate_asset.write_bytes(cover_bytes)
-    non_duplicate_asset.write_bytes(b"\x89PNG\r\n\x1a\n" + b"same visual subject, different extracted bytes")
+    other_image = Image.new("L", (96, 96))
+    other_image.putdata([y * 255 // 95 for y in range(96) for x in range(96)])
+    other_image.save(non_duplicate_asset, format="PNG")
+    resized_image = cover_image.resize((48, 48), Image.Resampling.LANCZOS)
+    resized_image.save(workspace.root / "images/000004-0001.png", format="PNG")
 
     cover = PageImage(
         1, 1, (0.0, 0.0, 1.0, 1.0), 100, 100,
@@ -393,6 +401,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     assert first_asset.read_bytes() == cover_bytes
     assert duplicate_asset.read_bytes() == cover_bytes
     assert non_duplicate_asset.read_bytes() != cover_bytes
+    assert (workspace.root / "images/000004-0001.png").is_file()
 
 
 def test_duplicate_cover_detection_is_incomplete_when_first_page_image_checkpoint_is_partial(tmp_path):
@@ -448,22 +457,23 @@ def test_duplicate_cover_detection_ignores_small_images_and_rejects_unsafe_paths
     small_logo_path = workspace.root / "images/small-logo.png"
     Image.open(image_path).resize((48, 48), Image.Resampling.LANCZOS).save(small_logo_path)
     logo = PageImage(2, 1, (0, 0, 0.3, 0.3), 48, 48, "image/png", "images/small-logo.png", 0.09)
-    unsafe = PageImage(3, 1, (0, 0, 1, 1), 96, 96, "image/png", "../../outside.png", 1.0)
     workspace.save_page_images(PageImages(1, (cover,), detected_count=1))
     workspace.save_page_images(PageImages(2, (logo,), detected_count=1))
-    workspace.save_page_images(PageImages(3, (unsafe,), detected_count=1))
-    for number in (1, 2, 3):
+    for number in (1, 2):
         workspace.save_page_analysis(PageAnalysis(
             page_number=number, width=612, height=792, character_count=0,
             word_count=0, image_count=1, has_native_text=False,
             native_text_quality=None, decision=PageDecision.EMPTY,
         ))
 
-    report = json.loads(build_quality_report(job, workspace, total_pages=3).read_text())
+    report = json.loads(build_quality_report(job, workspace, total_pages=2).read_text())
     duplicates = report["duplicate_covers"]
     assert duplicates["near_duplicate_count"] == 0
     assert duplicates["duplicate_count"] == 0
-    assert duplicates["status"] == "incomplete"
+    assert duplicates["status"] == "complete"
+
+    with pytest.raises(ValueError, match="safe relative images path"):
+        PageImage(3, 1, (0, 0, 1, 1), 96, 96, "image/png", "../../outside.png", 1.0)
 
 
 def test_corrupt_cover_image_marks_diagnostics_incomplete_without_failing_report(tmp_path):
