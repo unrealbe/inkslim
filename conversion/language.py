@@ -55,3 +55,64 @@ def detect_page_language(text: str) -> LanguageDetection | None:
     if language is None or best.prob < _MINIMUM_PROBABILITY:
         return None
     return LanguageDetection(language, best.prob)
+
+
+def infer_document_language(
+    pages: dict[int, str],
+    *,
+    fallback_selection: str,
+    minimum_page_letters: int = 80,
+    minimum_supporting_pages: int = 2,
+    minimum_vote_share: float = 0.60,
+) -> tuple[str, dict[str, object]]:
+    """Infer EPUB language from reconstructed page text, without changing OCR selection."""
+    fallback = epub_language_for_selection(fallback_selection)
+    weighted: dict[str, int] = {}
+    supporting_pages: dict[str, int] = {}
+    evaluated_pages = 0
+
+    for text in pages.values():
+        if not isinstance(text, str):
+            continue
+        letters = sum(character.isalpha() for character in text)
+        if letters < minimum_page_letters:
+            continue
+        evaluated_pages += 1
+        detection = detect_page_language(text)
+        if detection is None:
+            continue
+        language = _EPUB_LANGUAGES[detection.language]
+        weighted[language] = weighted.get(language, 0) + letters
+        supporting_pages[language] = supporting_pages.get(language, 0) + 1
+
+    total_weight = sum(weighted.values())
+    if not total_weight:
+        return fallback, {
+            "schema_version": 1,
+            "method": "fallback_to_ocr_selection",
+            "language": fallback,
+            "evaluated_pages": evaluated_pages,
+            "supporting_pages": 0,
+            "vote_share": None,
+        }
+
+    candidate = max(weighted, key=weighted.get)
+    vote_share = weighted[candidate] / total_weight
+    page_support = supporting_pages[candidate]
+    accepted = (
+        page_support >= minimum_supporting_pages
+        and vote_share >= minimum_vote_share
+    )
+    selected = candidate if accepted else fallback
+    return selected, {
+        "schema_version": 1,
+        "method": (
+            "weighted_reconstructed_page_language"
+            if accepted else "fallback_to_ocr_selection"
+        ),
+        "language": selected,
+        "detected_candidate": candidate,
+        "evaluated_pages": evaluated_pages,
+        "supporting_pages": page_support,
+        "vote_share": round(vote_share, 4),
+    }
