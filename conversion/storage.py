@@ -498,6 +498,30 @@ class JobWorkspace:
             self._quarantine_checkpoint(path, 1, "document-model", "corrupt", exc)
             return None
 
+    @property
+    def document_language_analysis_path(self) -> Path:
+        return self.output_dir / "document-language-analysis.json"
+
+    def save_document_language_analysis(self, analysis: dict[str, Any]) -> Path:
+        if analysis.get("schema_version") != 1:
+            raise ValueError("Unsupported document language analysis schema version")
+        self._atomic_json(self.document_language_analysis_path, analysis)
+        return self.document_language_analysis_path
+
+    def load_document_language_analysis(self) -> dict[str, Any] | None:
+        path = self.document_language_analysis_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if value.get("schema_version") != 1 or not isinstance(value.get("language"), str):
+                raise ValueError("Document language analysis checkpoint is invalid")
+            return value
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "document-language-analysis", "corrupt", exc)
+            return None
+
     def page_structure_path(self, page_number: int) -> Path:
         if page_number < 1:
             raise ValueError("page_number must be at least 1")
@@ -763,6 +787,12 @@ class JobStore:
         if source.suffix.lower() != ".pdf":
             raise ValueError("Conversion V1 currently accepts PDF input only")
         language = normalize_language_selection(language)
+
+        source_size = source.stat().st_size
+        if self.storage_usage_bytes() + source_size > self.max_storage_bytes:
+            raise StorageQuotaExceededError(
+                "Conversion storage is full. Remove older jobs or increase MAX_CONVERSION_STORAGE_MB."
+            )
 
         job_id = str(uuid.uuid4())
         workspace = self.workspace(job_id)
