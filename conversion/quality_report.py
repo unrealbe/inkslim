@@ -7,12 +7,12 @@ import json
 import os
 import re
 import zipfile
-
-from PIL import Image, UnidentifiedImageError
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
 
 from .models import Job, PageResult, TextSource
 from .language import detect_page_language, ocr_languages_for_selection
@@ -223,7 +223,7 @@ def _duplicate_cover_statistics(
                         pixels[offset + column] > pixels[offset + column + 1]
                     )
             return value
-        except (OSError, ValueError, UnidentifiedImageError):
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             return None
 
     cover_digest = exact_digest(cover)
