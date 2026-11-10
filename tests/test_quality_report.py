@@ -329,7 +329,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     first_asset.write_bytes(cover_bytes)
     duplicate_asset.write_bytes(cover_bytes)
     other_image = Image.new("L", (96, 96))
-    other_image.putdata([y * 255 // 95 for y in range(96) for x in range(96)])
+    other_image.putdata([255 - (x * 255 // 95) for y in range(96) for x in range(96)])
     other_image.save(non_duplicate_asset, format="PNG")
     resized_image = cover_image.resize((48, 48), Image.Resampling.LANCZOS)
     resized_image.save(workspace.root / "images/000004-0001.png", format="PNG")
