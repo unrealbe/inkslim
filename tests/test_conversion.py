@@ -1237,3 +1237,30 @@ def test_storage_quota_rejects_new_job_and_preserves_existing_jobs(tmp_path):
     with pytest.raises(StorageQuotaExceededError):
         store.create_job(second_source, second_source.name)
     assert store.get_job(first.id) is not None
+
+
+
+def test_storage_quota_precheck_rejects_large_input_before_copy(tmp_path, monkeypatch):
+    from conversion.storage import StorageQuotaExceededError
+    import conversion.storage as storage_module
+
+    store = JobStore(
+        tmp_path / "precheck.sqlite3",
+        tmp_path / "jobs",
+        max_storage_bytes=32,
+    )
+    source = tmp_path / "large.pdf"
+    source.write_bytes(b"x" * 101)
+    copy_calls = []
+    monkeypatch.setattr(
+        storage_module.shutil,
+        "copyfile",
+        lambda *args, **kwargs: copy_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(StorageQuotaExceededError):
+        store.create_job(source, source.name)
+
+    assert copy_calls == []
+    assert store.list_jobs() == []
+    assert list(store.jobs_dir.iterdir()) == []
