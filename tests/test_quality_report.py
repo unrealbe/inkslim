@@ -68,6 +68,15 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     workspace.save_page_analysis(_analysis(2, PageDecision.OCR_REQUIRED))
     workspace.save_page_result(_result(2, TextSource.TESSERACT))
     workspace.save_page_analysis(_analysis(3, PageDecision.EMPTY))
+    workspace.save_document_language_analysis({
+        "schema_version": 1,
+        "method": "weighted_reconstructed_page_language",
+        "language": "en",
+        "detected_candidate": "en",
+        "evaluated_pages": 31,
+        "supporting_pages": 29,
+        "vote_share": 0.9842,
+    })
 
     path = build_quality_report(
         job,
@@ -87,6 +96,8 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["job"]["total_pages"] == 3
     assert report["job"]["language_selection"] == "nld+eng"
     assert report["job"]["ocr_languages"] == ["nld", "eng"]
+    assert report["document_language"]["language"] == "en"
+    assert report["document_language"]["supporting_pages"] == 29
     assert report["summary"]["decisions"] == {
         "use_native": 1,
         "ocr_required": 1,
@@ -360,7 +371,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 7
     assert duplicate_report == {
         "status": "complete",
         "method": "sha256_exact_file_bytes_and_dhash64",
