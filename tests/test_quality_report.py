@@ -434,7 +434,9 @@ def test_duplicate_cover_detection_ignores_small_images_and_rejects_unsafe_paths
     image.putdata([x * 255 // 95 for y in range(96) for x in range(96)])
     image.save(image_path, format="PNG")
     cover = PageImage(1, 1, (0, 0, 1, 1), 96, 96, "image/png", "images/cover.png", 1.0)
-    logo = PageImage(2, 1, (0, 0, 0.3, 0.3), 96, 96, "image/png", "images/cover.png", 0.09)
+    small_logo_path = workspace.root / "images/small-logo.png"
+    Image.open(image_path).resize((48, 48), Image.Resampling.LANCZOS).save(small_logo_path)
+    logo = PageImage(2, 1, (0, 0, 0.3, 0.3), 48, 48, "image/png", "images/small-logo.png", 0.09)
     unsafe = PageImage(3, 1, (0, 0, 1, 1), 96, 96, "image/png", "../../outside.png", 1.0)
     workspace.save_page_images(PageImages(1, (cover,), detected_count=1))
     workspace.save_page_images(PageImages(2, (logo,), detected_count=1))
