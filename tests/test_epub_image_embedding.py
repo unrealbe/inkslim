@@ -107,6 +107,7 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
         load_structure_analysis=lambda: {},
         load_page_structure=lambda _page: [],
         save_document_model=lambda _doc: None,
+        save_document_language_analysis=lambda _analysis: None,
     )
     job = SimpleNamespace(
         id="12345678-1234-5678-1234-567812345678",
