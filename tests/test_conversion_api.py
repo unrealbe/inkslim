@@ -126,7 +126,7 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
     downloaded_report = api_client.get(created["links"]["report"])
     assert downloaded_report.status_code == 200
     assert downloaded_report.mimetype == "application/json"
-    assert json.loads(downloaded_report.data)["schema_version"] == 6
+    assert json.loads(downloaded_report.data)["schema_version"] == 7
     assert downloaded_report.headers["Cache-Control"] == "no-store, max-age=0"
     assert downloaded_report.headers["Pragma"] == "no-cache"
     assert downloaded_report.headers["Expires"] == "0"
