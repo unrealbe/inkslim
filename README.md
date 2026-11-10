@@ -306,7 +306,7 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 6 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 7 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
@@ -351,7 +351,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Review exact duplicate-cover diagnostics and consider removal only after real-book validation; semantic cover metadata and advertisement separation are implemented.
+1. Review exact and perceptual duplicate-cover diagnostics against real books; consider any removal only after separate validation. Semantic cover metadata and advertisement separation are implemented.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
@@ -496,14 +496,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: first-page cover candidates require confidence ≥0.75 and image coverage ≥45%, while advertisement candidates require confidence ≥0.65. Qualifying covers are marked in EPUB metadata, and advertisement images are preserved in a separate section. Exact duplicate-cover diagnostics use SHA-256 byte equality and do not remove images; near-duplicate visual matching and any removal behavior remain future work.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: first-page cover candidates require confidence ≥0.75 and image coverage ≥45%, while advertisement candidates require confidence ≥0.65. Qualifying covers are marked in EPUB metadata, and advertisement images are preserved in a separate section. Exact duplicate-cover diagnostics use SHA-256 byte equality, and perceptual near-duplicate diagnostics use a 64-bit difference hash. Both are report-only; automatic image removal remains future work.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them. Exact duplicate-cover diagnostics compare original extracted bytes by SHA-256 and report matches without deleting images; near-duplicate matching and removal remain future work. Automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them. Exact duplicate-cover diagnostics compare original extracted bytes by SHA-256; perceptual near-duplicate diagnostics use a 64-bit difference hash. Both report matches without deleting images; automatic removal remains future work. Automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 
