@@ -1257,7 +1257,7 @@ function renderConversionJob(item,job) {
         : difference > 0 ? " · " + fmt(difference) + " larger" : " · same size";
       const pageSummary = Number(details.total_pages) > 0
         ? " · " + (details.completed_pages || 0) + "/" + details.total_pages + " pages · " +
-          Math.round((Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)) /
+          Math.round((Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages))) /
             Number(details.total_pages)) * 100) + "%"
         : "";
       conversionMeta(item,"completed" + pageSummary + " · " +
