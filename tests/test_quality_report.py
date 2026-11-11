@@ -295,6 +295,50 @@ def test_quality_report_counts_images_embedded_in_epub(tmp_path):
     assert images["embedded_in_epub"] == 1
     assert images["embedded_bytes"] == 10
 
+def test_quality_report_records_epub_image_optimization_savings(tmp_path):
+    source = tmp_path / "optimized-images.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
+
+    asset = workspace.page_image_asset_prefix(1, 1).with_suffix(".jpg")
+    asset.parent.mkdir(parents=True, exist_ok=True)
+    Image.effect_noise((600, 800), 90).convert("RGB").save(
+        asset, "JPEG", quality=100, subsampling=0
+    )
+    original_size = asset.stat().st_size
+    relative = asset.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        1,
+        (PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), 600, 800,
+            "image/jpeg", relative, 0.64,
+        ),),
+        detected_count=1,
+    ))
+
+    optimized = BytesIO()
+    Image.effect_noise((600, 800), 90).convert("RGB").save(
+        optimized, "JPEG", quality=85, optimize=True, progressive=True
+    )
+    optimized_bytes = optimized.getvalue()
+    epub = tmp_path / "optimized.epub"
+    with zipfile.ZipFile(epub, "w") as archive:
+        archive.writestr("OEBPS/" + relative, optimized_bytes)
+
+    report_path = build_quality_report(
+        job, workspace, total_pages=1, output_path=epub,
+    )
+    images = json.loads(report_path.read_text(encoding="utf-8"))["images"]
+    assert images["optimized_image_count"] == 1
+    assert images["optimization_saved_bytes"] == original_size - len(optimized_bytes)
+    assert images["optimization_method"] == (
+        "jpeg_quality_85_optimize_progressive_png_lossless_optimize"
+    )
+
+
 def test_quality_report_flags_missing_image_checkpoints(tmp_path):
     source = tmp_path / "partial.pdf"
     source.write_bytes(b"%PDF-placeholder")
