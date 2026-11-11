@@ -93,3 +93,17 @@ def test_version_endpoint_exposes_release_and_commit_metadata(monkeypatch):
         "version": "0.1.0-dev",
         "commit": "abcdef1234567890",
     }
+
+
+def test_conversion_progress_status_targets_visible_status_and_shows_percentage():
+    app.AUTH_USER = app.AUTH_PASS = ""
+    response = app.app.test_client().get("/")
+    html = response.get_data(as_text=True)
+    assert 'meta.className = "meta job-status"' in html
+    assert 'item.querySelector(".job-status")' in html
+    assert 'const percentage = Math.round((completedPages / totalPages) * 100);' in html
+    assert 'progress.value = percentage;' in html
+    assert 'completedPages + "/" + totalPages + " pages · " + percentage + "%"' in html
+    assert 'progress.setAttribute("aria-label","Conversion progress: " + percentage + "%")' in html
+    assert 'progress.setAttribute("aria-label","Conversion progress")' in html
+    assert 'Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)))' in html
