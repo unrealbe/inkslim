@@ -324,7 +324,7 @@ Each completed conversion writes `quality-report.json` beside the generated EPUB
 - Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
 - Per-page semantic content candidates (text, scanned text, mixed, cover, illustration, advertisement, empty or unknown), confidence scores, evidence and aggregate page-type counts.
 
-The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes both page-level warnings and content-quality warning entries.
+The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes page-level warnings, content-quality warnings and document-structure diagnostics.
 
 Image metrics are derived from durable per-page image checkpoints. If a checkpoint or extracted asset is missing, the report flags incomplete detection or missing assets rather than silently treating the page as image-free. Internal asset paths are not exposed.
 
