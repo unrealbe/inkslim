@@ -64,6 +64,9 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'imageStats.optimization_saved_bytes' in html
     assert 'report.document_structure' in html
     assert 'EPUB structure check' in html
+    assert 'Duplicate cover check' in html
+    assert 'report.duplicate_covers || imageStats.duplicate_cover_detection' in html
+    assert 'no images were removed automatically' in html
     assert 'Possible repeated headings: ' in html
     assert 'duplicateHeadings.count + " · Source pages " + duplicatePages.join(", ")' in html
     assert '...(Array.isArray(structure.warnings) ? structure.warnings : [])' in html
@@ -95,6 +98,16 @@ def test_quality_report_renderer_displays_structure_warning_as_user_facing_text(
         "summary": {"pages_with_results": 4, "total_pages": 4, "decisions": {}, "result_sources": {}},
         "content_quality": {"text_page_coverage": 1, "pages_with_text": 4, "pages_without_text": 0},
         "images": {},
+        "duplicate_covers": {
+            "status": "complete",
+            "cover_candidate": {"page_number": 1, "classification_confidence": 0.91},
+            "duplicate_count": 1,
+            "matches": [{"page_number": 3, "image_index": 1}],
+            "near_duplicate_count": 1,
+            "near_matches": [{"page_number": 5, "image_index": 2, "hamming_distance": 2}],
+            "removed_count": 0,
+            "automatic_removal_enabled": False,
+        },
         "document_structure": {
             "status": "available",
             "reading_order": {"status": "ok", "out_of_order_transitions": 0},
@@ -141,6 +154,21 @@ setImmediate(() => {{
   }}
   if (rendered.includes("POSSIBLE_DUPLICATE_HEADINGS")) {{
     throw new Error("Internal warning code leaked into the UI");
+  }}
+  if (!rendered.includes("Duplicate cover check")) {{
+    throw new Error("Duplicate-cover section was not rendered: " + rendered);
+  }}
+  if (!rendered.includes("1 exact duplicate(s) · 1 possible visual match(es) · scan complete")) {{
+    throw new Error("Duplicate-cover counts were not rendered: " + rendered);
+  }}
+  if (!rendered.includes("Byte-identical images on source pages 3")) {{
+    throw new Error("Exact duplicate page was not rendered: " + rendered);
+  }}
+  if (!rendered.includes("Possible visual matches on source pages 5 · review manually")) {{
+    throw new Error("Near-duplicate page was not rendered: " + rendered);
+  }}
+  if (!rendered.includes("Detection only: no images were removed automatically.")) {{
+    throw new Error("Non-destructive detection notice was not rendered: " + rendered);
   }}
 }});
 """
