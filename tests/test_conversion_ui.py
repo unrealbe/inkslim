@@ -54,6 +54,7 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'warning.page_numbers.join(", ")' in html
     assert 'warning.message || warning.code' in html
     assert 'imageStats.embedded_in_epub' in html
+    assert 'imageStats.optimization_saved_bytes' in html
     assert 'images included in the EPUB' in html
     assert 'files.input_size_bytes' in html
     assert 'completed · PDF' in html
