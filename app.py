@@ -1241,7 +1241,9 @@ function renderConversionJob(item,job) {
       const sizeChange = difference < 0
         ? " · " + fmt(Math.abs(difference)) + " smaller"
         : difference > 0 ? " · " + fmt(difference) + " larger" : " · same size";
-      conversionMeta(item,"completed · " +
+      const pageSummary = Number(details.total_pages) > 0
+        ? " · " + (details.completed_pages || 0) + "/" + details.total_pages + " pages" : "";
+      conversionMeta(item,"completed" + pageSummary + " · " +
         String(files.input_format || "pdf").toUpperCase() + " " + fmt(inputSize) +
         " → " + String(files.output_format || "epub").toUpperCase() + " " +
         fmt(outputSize) + sizeChange);
