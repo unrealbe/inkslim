@@ -849,11 +849,12 @@ INDEX_HTML = """<!doctype html>
 
   <p class="hint">Your original files are never modified. Optimization uploads are deleted after processing. PDF-to-EPUB jobs, including original PDFs, checkpoints and results, are stored locally on your server while processing and retained for 24 hours after completion by default.</p>
 
-  <div class="card" id="results" hidden>
+  <div class="card" id="results">
     <div class="history-header">
       <span>History</span>
       <button id="clear-history" type="button" disabled>Clear history</button>
     </div>
+    <p class="meta" id="empty-history">No optimization history yet.</p>
     <ul id="list"></ul>
   </div>
 </main>
@@ -1439,7 +1440,8 @@ function settingsForFile(file) {
   };
 }
 function updateHistory() {
-  results.hidden = list.children.length === 0;
+  results.hidden = false;
+  $("empty-history").hidden = list.children.length > 0;
   clearButton.disabled = !list.querySelector('li[data-state="done"], li[data-state="error"]');
 }
 function clearHistory() {
