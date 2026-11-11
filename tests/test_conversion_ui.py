@@ -13,6 +13,15 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'value="shrink"' in html
     assert 'value="convert"' in html
     assert 'id="conversion-options"' in html
+    assert html.index('id="operation-card"') < html.index('id="drop"')
+    assert 'id="selection-panel"' in html
+    assert 'id="selected-files"' in html
+    assert 'id="start-processing"' in html
+    assert 'Start processing' in html
+    assert 'href="#operation-card"' in html
+    assert 'href="#results"' in html
+    assert 'value="nld+eng"' not in html
+    assert 'value="fra+eng"' not in html
     assert 'id="conversion-language"' in html
     assert 'id="report-panel"' in html
     assert 'Print / Save as PDF' in html
@@ -45,6 +54,8 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'warning.message || warning.code' in html
     assert 'imageStats.embedded_in_epub' in html
     assert 'images included in the EPUB' in html
+    assert 'files.input_size_bytes' in html
+    assert 'completed · PDF' in html
 
 
 def test_existing_shrink_interface_remains_available():
