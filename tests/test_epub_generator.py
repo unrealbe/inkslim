@@ -273,7 +273,6 @@ def test_epub_metadata_uses_pdf_metadata_before_filename_fallback(tmp_path):
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
-    job.input_path = str(source)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     with zipfile.ZipFile(epub_path) as archive:
