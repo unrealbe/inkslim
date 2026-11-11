@@ -230,8 +230,14 @@ def _select_anchor(
     return str(previous["id"])
 
 
-def _figure_markup(image: PageImage) -> bytes:
+def _figure_markup(image: PageImage, *, cover: bool = False) -> bytes:
     href = image.source_path
+    if cover:
+        return (
+            '<figure class="pdf-cover">'
+            f'<img src={quoteattr(href)} alt="Book cover"/>'
+            '</figure>'
+        ).encode("utf-8")
     alt = f"Image from source PDF page {image.page_number}"
     return (
         '<figure class="pdf-illustration">'
@@ -239,6 +245,21 @@ def _figure_markup(image: PageImage) -> bytes:
         f'<figcaption>Source PDF page {image.page_number}</figcaption>'
         '</figure>'
     ).encode("utf-8")
+
+
+def _select_page_start_anchor(
+    image: PageImage, records: list[dict[str, object]]
+) -> str | None:
+    """Place a page-sized image before the first text block on its source page."""
+    candidates = [
+        record for record in records
+        if record["page"] >= image.page_number
+    ]
+    if not candidates:
+        return None
+    same_page = [record for record in candidates if record["page"] == image.page_number]
+    selected = same_page[0] if same_page else candidates[0]
+    return str(selected["id"])
 
 
 def embed_pdf_images(
