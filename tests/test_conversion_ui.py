@@ -20,6 +20,7 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'Start processing' in html
     assert 'href="#operation-card"' in html
     assert 'href="#results"' in html
+    assert 'id="empty-history"' in html
     assert 'value="nld+eng"' not in html
     assert 'value="fra+eng"' not in html
     assert 'id="conversion-language"' in html
