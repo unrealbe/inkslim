@@ -16,7 +16,7 @@ from conversion.epub.builder import EpubMetadata
 from conversion.models import PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
 from conversion.pdf.images import PageImage, PageImages
 from conversion.pdf.models import PageAnalysis, PageDecision
-from conversion.quality_report import build_quality_report
+from conversion.quality_report import _document_structure_diagnostics, build_quality_report
 from conversion.storage import JobStore
 
 
@@ -174,8 +174,62 @@ def test_quality_report_flags_document_structure_candidates_without_exposing_tex
         "POSSIBLE_PAGE_NUMBER_ARTIFACTS",
     }
     assert "CHAPTER ONE" not in report_text
+    assert "Chapter One" not in report_text
     assert "Out of order paragraph" not in report_text
-    assert report["summary"]["warning_count"] >= 3
+    assert report["summary"]["warning_count"] == 4
+
+
+
+def test_document_structure_counts_repeated_headings_within_chapter_and_uses_each_page():
+    model = DocumentModel(
+        metadata=EpubMetadata(title="Repeated headings", language="en"),
+        chapters=[
+            DocumentChapter("Opening", [
+                DocumentParagraph("Repeated section", kind="h2", source_page=2),
+                DocumentParagraph("Body", source_page=2),
+                DocumentParagraph("Repeated section", kind="h3", source_page=4),
+            ]),
+        ],
+    )
+
+    class Workspace:
+        @staticmethod
+        def load_document_model():
+            return model
+
+    report = _document_structure_diagnostics(Workspace(), total_pages=4)
+
+    assert report["duplicate_headings"]["count"] == 1
+    assert report["duplicate_headings"]["occurrences"] == [
+        {"occurrence_count": 2, "page_numbers": [2, 4]},
+    ]
+
+
+def test_document_structure_preserves_full_duplicate_heading_count_over_display_limit():
+    chapters = []
+    for index in range(101):
+        title = f"Repeated section {index}"
+        chapters.extend([
+            DocumentChapter(title, [DocumentParagraph(title, kind="h2", source_page=index + 1)]),
+            DocumentChapter(title, [DocumentParagraph(title, kind="h2", source_page=index + 102)]),
+        ])
+    model = DocumentModel(
+        metadata=EpubMetadata(title="Many repeated headings", language="en"),
+        chapters=chapters,
+    )
+
+    class Workspace:
+        @staticmethod
+        def load_document_model():
+            return model
+
+    report = _document_structure_diagnostics(Workspace(), total_pages=202)
+
+    assert report["duplicate_headings"]["count"] == 101
+    assert len(report["duplicate_headings"]["occurrences"]) == 100
+    warning = next(item for item in report["warnings"] if item["code"] == "POSSIBLE_DUPLICATE_HEADINGS")
+    assert warning["affected_heading_count"] == 101
+    assert len(warning["occurrences"]) == 100
 
 
 def test_quality_report_marks_document_structure_unavailable_without_model(tmp_path):
