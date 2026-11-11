@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 import re
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import pikepdf
 
@@ -13,7 +15,7 @@ from ..language import epub_language_for_selection, infer_document_language
 from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobProcessingError
-from .builder import EpubBuildError, build_epub
+from .builder import EpubBuildError, build_epub, clean_text
 from .image_embedding import (
     EpubImageEmbeddingError,
     embed_pdf_images,
@@ -61,6 +63,28 @@ def _read_pdf_metadata(path: str | Path) -> dict[str, str]:
         return {}
 
 
+
+def _epub_metadata_matches(path: Path, title: str, author: str | None) -> bool:
+    """Return whether a cached EPUB contains the currently resolved book metadata."""
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            root = ET.fromstring(archive.read("OEBPS/content.opf"))
+        metadata = root.find("{http://www.idpf.org/2007/opf}metadata")
+        if metadata is None:
+            return False
+        dc_ns = "{http://purl.org/dc/elements/1.1/}"
+        title_node = metadata.find(f"{dc_ns}title")
+        creator_node = metadata.find(f"{dc_ns}creator")
+        cached_title = clean_text(title_node.text or "") if title_node is not None else ""
+        cached_author = (
+            clean_text(creator_node.text or "") if creator_node is not None else None
+        )
+        expected_author = clean_text(author) if author else None
+        return cached_title == title and cached_author == expected_author
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+        return False
+
+
 def _page_content_classifications(workspace: JobWorkspace, total_pages: int) -> dict[int, dict]:
     """Build page classifications from durable analysis and text/image checkpoints."""
     classifications: dict[int, dict] = {}
@@ -94,6 +118,10 @@ def generate_job_epub(
     if total_pages < 1:
         raise ValueError("total_pages must be at least 1")
     destination = workspace.output_dir / f"{_safe_stem(job.input_name)}-{job.id[:8]}.epub"
+    filename_title, filename_author = _filename_metadata(job.input_name)
+    pdf_metadata = _read_pdf_metadata(job.input_path)
+    resolved_title = clean_text(pdf_metadata.get("/Title", "")) or filename_title
+    resolved_author = clean_text(pdf_metadata.get("/Author", "")) or filename_author
 
     expected_images = sum(
         len(checkpoint.images)
@@ -105,6 +133,7 @@ def generate_job_epub(
         and embedded_image_count(destination) == expected_images
         and (expected_images == 0 or has_current_image_layout(destination))
         and workspace.load_document_language_analysis() is not None
+        and _epub_metadata_matches(destination, resolved_title, resolved_author)
     ):
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
         return destination
@@ -141,13 +170,11 @@ def generate_job_epub(
     )
     workspace.save_document_language_analysis(language_diagnostics)
 
-    filename_title, filename_author = _filename_metadata(job.input_name)
-    pdf_metadata = _read_pdf_metadata(job.input_path)
     doc = build_document_model(
         cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
-        title=pdf_metadata.get("/Title") or filename_title,
+        title=resolved_title,
         language=document_language,
-        author=pdf_metadata.get("/Author") or filename_author,
+        author=resolved_author,
     )
     doc.metadata.identifier = f"urn:uuid:{job.id}"
     workspace.save_document_model(doc)
