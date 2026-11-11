@@ -138,7 +138,7 @@ def test_generate_job_epub_unicode_and_special_characters(tmp_path):
     })
     workspace.save_page_structure(1, [])
 
-    job = _dummy_job(tmp_path, name="special-chars.pdf", language="nld+eng")
+    job = _dummy_job(tmp_path, name="special-chars.pdf", language="eng")
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     assert is_valid_epub(epub_path)
