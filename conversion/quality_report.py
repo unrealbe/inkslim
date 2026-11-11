@@ -66,6 +66,17 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
     source_pages: list[int] = []
 
     for chapter in model.chapters:
+        chapter_headings: set[str] = set()
+        chapter_page = next(
+            (paragraph.source_page for paragraph in chapter.paragraphs
+             if paragraph.source_page is not None),
+            None,
+        )
+        chapter_title = unicodedata.normalize("NFKC", chapter.title).casefold()
+        chapter_title = re.sub(r"[^\\w]+", " ", chapter_title, flags=re.UNICODE).strip()
+        if len(chapter_title) >= 4:
+            chapter_headings.add(chapter_title)
+
         for paragraph in chapter.paragraphs:
             page = paragraph.source_page
             if page is not None:
@@ -75,17 +86,20 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
                 continue
             if paragraph.kind in {"h1", "h2", "h3"}:
                 normalized = unicodedata.normalize("NFKC", text).casefold()
-                normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
+                normalized = re.sub(r"[^\\w]+", " ", normalized, flags=re.UNICODE).strip()
                 if len(normalized) >= 4:
-                    heading_occurrences.setdefault(normalized, []).append(page)
+                    chapter_headings.add(normalized)
             elif (
                 paragraph.kind == "p"
                 and page is not None
-                and re.fullmatch(r"\d{1,4}", text)
+                and re.fullmatch(r"\\d{1,4}", text)
                 and 1 <= int(text) <= total_pages
                 and int(text) in {page, page - 1}
             ):
                 page_number_candidates.add(page)
+
+        for heading in chapter_headings:
+            heading_occurrences.setdefault(heading, []).append(chapter_page)
 
     transitions = [
         {"from_page": previous, "to_page": current}
