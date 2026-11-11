@@ -468,3 +468,46 @@ def test_cover_candidate_filter_does_not_omit_native_or_text_rich_pages():
 
     assert _exclude_cover_ocr_text(cleaned, native_cover) == (cleaned, [])
     assert _exclude_cover_ocr_text(cleaned, text_rich_cover) == (cleaned, [])
+
+
+def test_cover_candidate_filter_requires_confident_image_extraction_and_multiple_pages():
+    from conversion.epub.generator import _exclude_cover_ocr_text
+
+    cleaned = {
+        1: [_para(1, "4 x Pa > a x oe I z m")],
+        2: [_para(1, "The actual story begins here.")],
+    }
+    low_confidence = {
+        1: {
+            "type": "cover_candidate",
+            "confidence": 0.74,
+            "signals": {
+                "text_source": "tesseract",
+                "text_word_count": 11,
+                "largest_image_coverage": 1.0,
+            },
+        }
+    }
+    confident = {
+        1: {
+            "type": "cover_candidate",
+            "confidence": 0.75,
+            "signals": {
+                "text_source": "tesseract",
+                "text_word_count": 11,
+                "largest_image_coverage": 1.0,
+            },
+        }
+    }
+
+    # If image extraction is incomplete, retain OCR text so it can anchor
+    # the image-placement fallback instead of moving the cover to an appendix.
+    assert _exclude_cover_ocr_text(cleaned, low_confidence) == (cleaned, [])
+    assert _exclude_cover_ocr_text(cleaned, confident) == (
+        {2: cleaned[2]},
+        [1],
+    )
+
+    # A one-page cover must not become an empty document after filtering.
+    one_page = {1: cleaned[1]}
+    assert _exclude_cover_ocr_text(one_page, confident) == (one_page, [])
