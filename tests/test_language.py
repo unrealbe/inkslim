@@ -77,7 +77,7 @@ def test_document_language_falls_back_when_pages_are_too_short():
 def test_document_language_falls_back_for_ambiguous_page_vote():
     selected, diagnostics = infer_document_language(
         {1: _english_page(), 2: _french_page()},
-        fallback_selection="fra+eng",
+        fallback_selection="fra",
     )
     assert selected == "fr"
     assert diagnostics["method"] == "fallback_to_ocr_selection"
@@ -92,7 +92,7 @@ def test_short_title_and_advert_pages_do_not_outvote_body_text():
             3: _english_page(),
             4: "Advertisement",
         },
-        fallback_selection="nld+eng",
+        fallback_selection="nld",
     )
     assert selected == "en"
     assert diagnostics["evaluated_pages"] == 2
