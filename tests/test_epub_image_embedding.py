@@ -442,7 +442,7 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         assert f"OEBPS/{cover_path}" in archive.namelist()
 
 
-def test_advert_candidate_images_are_preserved_in_separate_appendix(tmp_path):
+def test_advert_candidate_images_stay_at_source_page_position(tmp_path):
     workspace = JobWorkspace(tmp_path / "job")
     workspace.create()
     advert_path = _save_image(workspace, 2, 1, "blue")
