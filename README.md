@@ -430,7 +430,7 @@ The web application exposes a small API:
 
 ### PDF-to-EPUB conversion API
 
-The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field defaults to `eng` and accepts one of `nld`, `eng`, `fra` or `deu`. Automatic language selection is not supported; choose the OCR language explicitly.
+The asynchronous conversion API accepts PDF uploads as multipart/form-data. The required file field is `file`; the optional `language` field defaults to `eng` and accepts `nld`, `eng`, `nld+eng`, `fra`, `deu` or `fra+eng`. Automatic language selection is not supported; choose the OCR language explicitly.
 
 - `POST /api/conversions` returns **201** with a server-generated job ID, initial status, progress fields and links to the status, EPUB and report endpoints. Invalid or password-protected PDFs return **422**; missing files, unsupported extensions and invalid language selections return **400**. A full storage admission quota returns **507** (`STORAGE_QUOTA_EXCEEDED`).
 - `GET /api/conversions/{id}` returns the job status, progress, safe error details and endpoint links. Unknown or malformed IDs return **404**.
