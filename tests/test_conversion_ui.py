@@ -106,4 +106,4 @@ def test_conversion_progress_status_targets_visible_status_and_shows_percentage(
     assert 'completedPages + "/" + totalPages + " pages · " + percentage + "%"' in html
     assert 'progress.setAttribute("aria-label","Conversion progress: " + percentage + "%")' in html
     assert 'progress.setAttribute("aria-label","Conversion progress")' in html
-    assert 'Math.round((Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)) /' in html
+    assert 'Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)))' in html
