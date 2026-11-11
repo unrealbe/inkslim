@@ -66,7 +66,7 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'EPUB structure check' in html
     assert 'Duplicate cover check' in html
     assert 'report.duplicate_covers || imageStats.duplicate_cover_detection' in html
-    assert 'no images were removed automatically' in html
+    assert 'no images were removed automatically' in html\n    assert "First-page image checkpoint incomplete; duplicate detection was not run" in html
     assert 'Possible repeated headings: ' in html
     assert 'duplicateHeadings.count + " · Source pages " + duplicatePages.join(", ")' in html
     assert '...(Array.isArray(structure.warnings) ? structure.warnings : [])' in html
@@ -158,7 +158,7 @@ setImmediate(() => {{
   if (!rendered.includes("Duplicate cover check")) {{
     throw new Error("Duplicate-cover section was not rendered: " + rendered);
   }}
-  if (!rendered.includes("1 exact duplicate(s) · 1 possible visual match(es) · scan complete")) {{
+  if (!rendered.includes("Cover candidate: source page 1 · 91% confidence")) {\n    throw new Error("First-page cover candidate and confidence were not rendered: " + rendered);\n  }\n  if (!rendered.includes("1 exact duplicate(s) · 1 possible visual match(es) · scan complete")) {{
     throw new Error("Duplicate-cover counts were not rendered: " + rendered);
   }}
   if (!rendered.includes("Byte-identical images on source pages 3")) {{
