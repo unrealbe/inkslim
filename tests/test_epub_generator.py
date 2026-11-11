@@ -322,8 +322,8 @@ def test_epub_metadata_sanitizes_pdf_title_and_author_before_fallback(tmp_path):
     source = tmp_path / "Fallback Title - Fallback Author.pdf"
     with pikepdf.new() as pdf:
         pdf.add_blank_page()
-        pdf.docinfo["/Title"] = "\\x01"
-        pdf.docinfo["/Author"] = "\\x0b"
+        pdf.docinfo["/Title"] = "\x01"
+        pdf.docinfo["/Author"] = "\x0b"
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
