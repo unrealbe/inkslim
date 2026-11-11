@@ -66,7 +66,8 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'EPUB structure check' in html
     assert 'Duplicate cover check' in html
     assert 'report.duplicate_covers || imageStats.duplicate_cover_detection' in html
-    assert 'no images were removed automatically' in html\n    assert "First-page image checkpoint incomplete; duplicate detection was not run" in html
+    assert 'no images were removed automatically' in html
+    assert "First-page image checkpoint incomplete; duplicate detection was not run" in html
     assert 'Possible repeated headings: ' in html
     assert 'duplicateHeadings.count + " · Source pages " + duplicatePages.join(", ")' in html
     assert '...(Array.isArray(structure.warnings) ? structure.warnings : [])' in html
