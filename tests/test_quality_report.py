@@ -90,7 +90,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["schema_version"] == 8
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
-    assert report["generator"]["version"] == "development"
+    assert report["generator"]["version"] == "0.1.0-dev"
     assert report["generator"]["commit"] is None
     assert report["job"]["id"] == job.id
     assert report["job"]["total_pages"] == 3
