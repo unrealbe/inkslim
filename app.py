@@ -1230,7 +1230,10 @@ function showQualityReport(url) {
     const warningTitle = document.createElement("h3");
     warningTitle.textContent = "Content warnings";
     const warnings = document.createElement("p");
-    const warningItems = Array.isArray(quality.warnings) ? quality.warnings : [];
+    const warningItems = [
+      ...(Array.isArray(quality.warnings) ? quality.warnings : []),
+      ...(Array.isArray(structure.warnings) ? structure.warnings : [])
+    ];
     const warningLines = warningItems.map(warning => {
       if (typeof warning === "string") return warning;
       const pages = Array.isArray(warning.page_numbers) && warning.page_numbers.length
