@@ -240,7 +240,7 @@ def test_epub_language_is_inferred_from_reconstructed_book_text(tmp_path):
         "chapters": [],
     })
 
-    job = _dummy_job(tmp_path, name="english-book.pdf", language="nld+eng")
+    job = _dummy_job(tmp_path, name="english-book.pdf", language="eng")
     epub_path = generate_job_epub(job, workspace, total_pages=2)
 
     with zipfile.ZipFile(epub_path, "r") as archive:
