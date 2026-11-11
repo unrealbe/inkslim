@@ -269,7 +269,7 @@ def embed_pdf_images(
     total_pages: int,
     page_classifications: Mapping[int, Mapping[str, object]] | None = None,
 ) -> int:
-    """Embed illustrations inline, keep promotional images separate, and mark a confident cover."""
+    """Embed source images in reading order and mark a confident cover."""
     assets = _load_assets(workspace, total_pages)
     if not assets:
         return 0
