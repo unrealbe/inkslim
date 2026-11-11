@@ -154,7 +154,7 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
         },
         "duplicate_headings": {
             "count": duplicate_heading_count,
-            "occurrences": duplicate_headings,
+            "occurrences": duplicate_heading_occurrences,
         },
         "possible_page_number_artifacts": {
             "count": len(page_number_candidates),
