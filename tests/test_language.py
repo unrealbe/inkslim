@@ -8,15 +8,15 @@ from conversion.language import (
 )
 
 @pytest.mark.parametrize(("selection", "expected"), [
-    ("nld", ["nld"]), ("eng", ["eng"]),
-    ("fra", ["fra"]), ("deu", ["deu"]),
+    ("nld", ["nld"]), ("eng", ["eng"]), ("nld+eng", ["nld", "eng"]),
+    ("fra", ["fra"]), ("deu", ["deu"]), ("fra+eng", ["fra", "eng"]),
 ])
 def test_explicit_language_selection(selection, expected):
     assert ocr_languages_for_selection(selection) == expected
 
 @pytest.mark.parametrize(("selection", "expected_epub"), [
-    ("nld", "nl"), ("eng", "en"),
-    ("fra", "fr"), ("deu", "de"),
+    ("nld", "nl"), ("eng", "en"), ("nld+eng", "nl"),
+    ("fra", "fr"), ("deu", "de"), ("fra+eng", "fr"),
 ])
 def test_epub_language_for_selection(selection, expected_epub):
     assert epub_language_for_selection(selection) == expected_epub
@@ -98,6 +98,6 @@ def test_short_title_and_advert_pages_do_not_outvote_body_text():
     assert diagnostics["evaluated_pages"] == 2
 
 
-def test_document_language_inference_keeps_explicit_single_ocr_language():
-    assert ocr_languages_for_selection("eng") == ["eng"]
-    assert ocr_languages_for_selection("nld") == ["nld"]
+def test_document_language_inference_does_not_change_ocr_language_selection():
+    assert ocr_languages_for_selection("nld+eng") == ["nld", "eng"]
+    assert ocr_languages_for_selection("fra+eng") == ["fra", "eng"]
