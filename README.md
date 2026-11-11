@@ -192,6 +192,8 @@ Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scann
 
 The dashboard offers one OCR language per book. The HTTP API retains support for combined language codes for existing integrations.
 
+Generated EPUBs use visible paragraph spacing without first-line indentation. On the first page only, low-volume Tesseract output is omitted from the reading flow when page analysis identifies a dominant cover image; the cover image itself remains embedded, and native or text-rich page content is retained.
+
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
 The quality-report panel includes a **Duplicate cover check** when a high-confidence first-page cover is detected. It lists byte-identical images and possible visual matches with their source pages. These findings are advisory only: Inkslim does not automatically remove images or pages.

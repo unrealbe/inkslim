@@ -376,57 +376,38 @@ def test_cached_epub_is_rebuilt_when_pdf_metadata_changes(tmp_path):
 
 
 
-def test_cover_candidate_ocr_text_is_omitted_but_other_pages_remain():
-    from conversion.epub.generator import _exclude_cover_ocr_text
+def test_cached_epub_is_rebuilt_when_paragraph_layout_is_outdated(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job-old-layout")
+    workspace.create()
+    workspace.save_page_cleaned_paragraphs(1, [_para(1, "A readable paragraph.")])
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0,
+        "chapter_count": 0, "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+    job = _dummy_job(tmp_path, name="old-layout.pdf")
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
 
-    cleaned = {
-        1: [_para(1, "4 x Pa > a x oe I z m")],
-        2: [_para(1, "Multiple formats available")],
-        3: [_para(1, "The actual story begins here.")],
-    }
-    classifications = {
-        1: {
-            "type": "cover_candidate",
-            "signals": {
-                "text_source": "tesseract",
-                "text_word_count": 11,
-                "largest_image_coverage": 1.0,
-            },
+    # Simulate an EPUB produced by the previous stylesheet version.
+    with zipfile.ZipFile(epub_path, "r") as source:
+        entries = {
+            name: source.read(name)
+            for name in source.namelist()
+            if name != "OEBPS/styles.css"
         }
-    }
+    entries["OEBPS/styles.css"] = (
+        b"body { line-height: 1.4; }\\n"
+        b"p { margin: 0; text-indent: 1.2em; }\\n"
+    )
+    outdated = epub_path.with_suffix(".outdated")
+    with zipfile.ZipFile(outdated, "w") as target:
+        for name, content in entries.items():
+            target.writestr(name, content)
+    outdated.replace(epub_path)
 
-    result, omitted = _exclude_cover_ocr_text(cleaned, classifications)
+    rebuilt = generate_job_epub(job, workspace, total_pages=1)
 
-    assert omitted == [1]
-    assert 1 not in result
-    assert result[2] == cleaned[2]
-    assert result[3] == cleaned[3]
-
-
-def test_cover_candidate_filter_does_not_omit_native_or_text_rich_pages():
-    from conversion.epub.generator import _exclude_cover_ocr_text
-
-    cleaned = {1: [_para(1, "A meaningful title and author.")]}
-    native_cover = {
-        1: {
-            "type": "cover_candidate",
-            "signals": {
-                "text_source": "native",
-                "text_word_count": 5,
-                "largest_image_coverage": 0.9,
-            },
-        }
-    }
-    text_rich_cover = {
-        1: {
-            "type": "cover_candidate",
-            "signals": {
-                "text_source": "tesseract",
-                "text_word_count": 25,
-                "largest_image_coverage": 0.9,
-            },
-        }
-    }
-
-    assert _exclude_cover_ocr_text(cleaned, native_cover) == (cleaned, [])
-    assert _exclude_cover_ocr_text(cleaned, text_rich_cover) == (cleaned, [])
+    with zipfile.ZipFile(rebuilt) as archive:
+        stylesheet = archive.read("OEBPS/styles.css").decode("utf-8")
+    assert "Inkslim EPUB layout version: 2" in stylesheet
+    assert "p { margin: 0 0 0.8em; text-indent: 0; }" in stylesheet
