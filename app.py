@@ -1179,6 +1179,58 @@ function showQualityReport(url) {
               ? "Image detection or extraction was incomplete; some source images may be missing."
               : "Image extraction status unavailable.";
     panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
+    const duplicateCovers = report.duplicate_covers || imageStats.duplicate_cover_detection || {};
+    const duplicateTitle = document.createElement("h3");
+    duplicateTitle.textContent = "Duplicate cover check";
+    const duplicateSummary = document.createElement("p");
+    duplicateSummary.className = "meta";
+    const coverCandidate = duplicateCovers.cover_candidate || {};
+    const firstPageCheckpointIncomplete = duplicateCovers.status === "incomplete" &&
+      !coverCandidate.page_number &&
+      Array.isArray(duplicateCovers.warnings) &&
+      duplicateCovers.warnings.includes("FIRST_PAGE_IMAGE_CHECKPOINT_INCOMPLETE");
+    if (firstPageCheckpointIncomplete) {
+      duplicateSummary.textContent =
+        "First-page image checkpoint incomplete; duplicate detection was not run and no match counts are available.";
+      panel.append(duplicateTitle,duplicateSummary);
+    } else if (duplicateCovers.status === "complete" || duplicateCovers.status === "incomplete") {
+      duplicateSummary.textContent =
+        (duplicateCovers.duplicate_count || 0) + " exact duplicate(s) · " +
+        (duplicateCovers.near_duplicate_count || 0) + " possible visual match(es)" +
+        (duplicateCovers.status === "incomplete" ? " · scan incomplete" : " · scan complete");
+      panel.append(duplicateTitle,duplicateSummary);
+      if (coverCandidate.page_number) {
+        const candidate = document.createElement("p");
+        candidate.className = "meta";
+        candidate.textContent = "Cover candidate: source page " + coverCandidate.page_number +
+          " · " + Math.round(Number(coverCandidate.classification_confidence || 0) * 100) + "% confidence";
+        panel.appendChild(candidate);
+      }
+      const exactMatches = Array.isArray(duplicateCovers.matches) ? duplicateCovers.matches : [];
+      if (exactMatches.length) {
+        const exact = document.createElement("p");
+        exact.className = "meta";
+        exact.textContent = "Byte-identical images on source pages " +
+          [...new Set(exactMatches.map(item => item.page_number))].sort((a,b) => a-b).join(", ");
+        panel.appendChild(exact);
+      }
+      const nearMatches = Array.isArray(duplicateCovers.near_matches) ? duplicateCovers.near_matches : [];
+      if (nearMatches.length) {
+        const near = document.createElement("p");
+        near.className = "meta";
+        near.textContent = "Possible visual matches on source pages " +
+          [...new Set(nearMatches.map(item => item.page_number))].sort((a,b) => a-b).join(", ") +
+          " · review manually";
+        panel.appendChild(near);
+      }
+      const safety = document.createElement("p");
+      safety.className = "meta";
+      safety.textContent = "Detection only: no images were removed automatically.";
+      panel.appendChild(safety);
+    } else {
+      duplicateSummary.textContent = "No high-confidence first-page cover candidate; duplicate detection was not run.";
+      panel.append(duplicateTitle,duplicateSummary);
+    }
     if (Number(imageStats.optimized_image_count) > 0) {
       const optimization = document.createElement("p");
       optimization.className = "meta";
