@@ -190,6 +190,8 @@ Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scann
 | French | French OCR |
 | German | German OCR |
 
+The dashboard offers one OCR language per book. The HTTP API retains support for combined language codes for existing integrations.
+
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
 The OCR language selection controls the single Tesseract model used for the book. EPUB document language is inferred separately from reconstructed book text when at least two sufficiently long pages support a language with a clear weighted majority; otherwise Inkslim falls back to the selected OCR language. The inferred language and its diagnostics are stored without including recognized book text in the report. Conversion storage quota is checked against the source file size before it is copied into a persistent job workspace, and checked again after copying to handle concurrent uploads.
