@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-ARG INKSLIM_VERSION=development
+ARG INKSLIM_VERSION=0.1.0-dev
 ARG INKSLIM_COMMIT=unknown
 
 # ImageMagick and zip tools are used by the EPUB processor. Tesseract and its
