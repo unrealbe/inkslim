@@ -159,7 +159,10 @@ setImmediate(() => {{
   if (!rendered.includes("Duplicate cover check")) {{
     throw new Error("Duplicate-cover section was not rendered: " + rendered);
   }}
-  if (!rendered.includes("Cover candidate: source page 1 · 91% confidence")) {\n    throw new Error("First-page cover candidate and confidence were not rendered: " + rendered);\n  }\n  if (!rendered.includes("1 exact duplicate(s) · 1 possible visual match(es) · scan complete")) {{
+  if (!rendered.includes("Cover candidate: source page 1 · 91% confidence")) {{
+    throw new Error("First-page cover candidate and confidence were not rendered: " + rendered);
+  }}
+  if (!rendered.includes("1 exact duplicate(s) · 1 possible visual match(es) · scan complete")) {{
     throw new Error("Duplicate-cover counts were not rendered: " + rendered);
   }}
   if (!rendered.includes("Byte-identical images on source pages 3")) {{
