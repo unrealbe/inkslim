@@ -434,7 +434,7 @@ def embed_pdf_images(
                         if cover_asset is not None:
                             cover_markup = b"\n" + _figure_markup(cover_asset[0], cover=True)
                             chapter_bytes, count = re.subn(
-                                rb"(<section\\b[^>]*>)",
+                                rb"(<section\b[^>]*>)",
                                 lambda match: match.group(1) + cover_markup,
                                 chapter_bytes,
                                 count=1,
