@@ -36,10 +36,28 @@ def _safe_stem(name: str) -> str:
     return cleaned or "book"
 
 
-def _display_title(name: str) -> str:
-    stem = Path(name).stem
-    cleaned = re.sub(r"[_\-]+", " ", stem).strip()
-    return cleaned.title() if cleaned else "Book"
+def _filename_metadata(name: str) -> tuple[str, str | None]:
+    """Derive a title and optional author from the common 'Title - Author' filename form."""
+    stem = Path(name).stem.strip()
+    parts = re.split(r"\\s+-\\s+", stem, maxsplit=1)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        return parts[0].strip(), parts[1].strip()
+    cleaned = re.sub(r"[_\\-]+", " ", stem).strip()
+    return (cleaned.title() if cleaned else "Book"), None
+
+
+def _read_pdf_metadata(path: str | Path) -> dict[str, str]:
+    """Read basic PDF document information without making conversion depend on it."""
+    try:
+        with pikepdf.open(path) as pdf:
+            return {
+                key: str(pdf.docinfo.get(key)).strip()
+                for key in ("/Title", "/Author")
+                if pdf.docinfo.get(key) and str(pdf.docinfo.get(key)).strip()
+            }
+    except Exception:
+        logger.debug("Could not read optional PDF metadata from %s", path, exc_info=True)
+        return {}
 
 
 def _page_content_classifications(workspace: JobWorkspace, total_pages: int) -> dict[int, dict]:
