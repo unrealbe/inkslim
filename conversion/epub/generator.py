@@ -5,6 +5,8 @@ import logging
 import re
 from pathlib import Path
 
+import pikepdf
+
 from ..document import build_document_model
 from ..pdf.content_classification import classify_page_content
 from ..language import epub_language_for_selection, infer_document_language
@@ -120,9 +122,13 @@ def generate_job_epub(
     )
     workspace.save_document_language_analysis(language_diagnostics)
 
+    filename_title, filename_author = _filename_metadata(job.input_name)
+    pdf_metadata = _read_pdf_metadata(job.input_path)
     doc = build_document_model(
         cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
-        title=_display_title(job.input_name), language=document_language,
+        title=pdf_metadata.get("/Title") or filename_title,
+        language=document_language,
+        author=pdf_metadata.get("/Author") or filename_author,
     )
     doc.metadata.identifier = f"urn:uuid:{job.id}"
     workspace.save_document_model(doc)
