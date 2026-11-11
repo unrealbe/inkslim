@@ -75,7 +75,7 @@ def post(client, content, filename="book.epub", **form):
 def test_index_and_health(client):
     page = client.get("/")
     assert page.status_code == 200
-    assert b"Drop your EPUB or PDF files here" in page.data
+    assert b"Select or drop files" in page.data
     assert client.get("/healthz").data == b"ok"
 
 
