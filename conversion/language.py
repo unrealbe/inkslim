@@ -7,10 +7,12 @@ from langdetect import DetectorFactory, LangDetectException, detect_langs
 DetectorFactory.seed = 0
 _SELECTIONS = {
     "nld": ("nld",), "eng": ("eng",),
-    "fra": ("fra",), "deu": ("deu",),
+    "nld+eng": ("nld", "eng"), "fra": ("fra",), "deu": ("deu",),
+    "fra+eng": ("fra", "eng"),
 }
 _EPUB_LANGUAGES = {
-    "nld": "nl", "eng": "en", "fra": "fr", "deu": "de",
+    "nld": "nl", "eng": "en", "nld+eng": "nl",
+    "fra": "fr", "deu": "de", "fra+eng": "fr",
 }
 _DETECTED = {"nl": "nld", "en": "eng", "fr": "fra", "de": "deu"}
 _MINIMUM_LETTERS = 80
@@ -28,7 +30,7 @@ def normalize_language_selection(value: str) -> str:
         raise ValueError("language must be a supported language selection")
     selection = value.strip().lower()
     if selection not in _SELECTIONS:
-        raise ValueError("language must be nld, eng, fra or deu")
+        raise ValueError("language must be nld, eng, nld+eng, fra, deu or fra+eng")
     return selection
 
 def ocr_languages_for_selection(value: str) -> list[str]:
