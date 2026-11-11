@@ -1034,7 +1034,7 @@ function conversionItem(id,name,initialMessage="Loading job status...") {
   identity.className = "meta job-identity";
   identity.textContent = id ? "Job " + id.slice(0,8) : "Creating job...";
   const meta = document.createElement("div");
-  meta.className = "meta";
+  meta.className = "meta job-status";
   meta.textContent = initialMessage;
   const progress = document.createElement("progress");
   progress.max = 100;
@@ -1048,7 +1048,7 @@ function conversionItem(id,name,initialMessage="Loading job status...") {
   return item;
 }
 function conversionMeta(item,message,isError=false) {
-  const meta = item.querySelector(".meta");
+  const meta = item.querySelector(".job-status");
   meta.textContent = message;
   meta.classList.toggle("err",isError);
 }
@@ -1227,14 +1227,20 @@ function renderConversionJob(item,job) {
   item.querySelector(".job-identity").textContent = "Job " + (job.short_id || job.id.slice(0,8)) +
     (job.completed_at ? " · completed " + new Date(job.completed_at).toLocaleString() : "");
   if (Number(details.total_pages) > 0) {
-    progress.max = details.total_pages;
-    progress.value = Math.min(details.completed_pages || 0,details.total_pages);
+    const totalPages = Number(details.total_pages);
+    const completedPages = Math.max(0,Math.min(Number(details.completed_pages) || 0,totalPages));
+    const percentage = Math.round((completedPages / totalPages) * 100);
+    progress.max = 100;
+    progress.value = percentage;
+    progress.setAttribute("aria-label","Conversion progress: " + percentage + "%");
     const current = details.current_page ? " · page " + details.current_page : "";
     conversionMeta(item,status.replaceAll("_"," ") + " · " +
-      (details.completed_pages || 0) + "/" + details.total_pages + " pages" + current +
+      completedPages + "/" + totalPages + " pages · " + percentage + "%" + current +
       (details.message ? " · " + details.message : ""));
   } else {
+    progress.max = 100;
     progress.removeAttribute("value");
+    progress.setAttribute("aria-label","Conversion progress");
     conversionMeta(item,status.replaceAll("_"," ") +
       (details.message ? " · " + details.message : ""));
   }
