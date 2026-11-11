@@ -86,6 +86,8 @@ def _exclude_cover_ocr_text(
         and signals.get("text_source") == "tesseract"
         and signals.get("text_word_count", 0) < 20
         and signals.get("largest_image_coverage", 0.0) >= 0.45
+        and cover.get("confidence", 0.0) >= 0.75
+        and len(cleaned_pages) > 1
     ):
         return cleaned_pages, []
     return {page: paragraphs for page, paragraphs in cleaned_pages.items() if page != 1}, [1]
