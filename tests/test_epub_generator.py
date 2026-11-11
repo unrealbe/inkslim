@@ -251,3 +251,125 @@ def test_epub_language_is_inferred_from_reconstructed_book_text(tmp_path):
     assert diagnostics["language"] == "en"
     assert diagnostics["method"] == "weighted_reconstructed_page_language"
     assert diagnostics["supporting_pages"] == 2
+
+
+def test_epub_metadata_uses_pdf_metadata_before_filename_fallback(tmp_path):
+    import pikepdf
+
+    workspace = JobWorkspace(tmp_path / "job-metadata")
+    workspace.create()
+    workspace.save_page_cleaned_paragraphs(1, [_para(1, "A paragraph of readable book text.")])
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0,
+        "chapter_count": 0, "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    source = tmp_path / "The Long and Hungry Road - Filename Author.pdf"
+    with pikepdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.docinfo["/Title"] = "PDF Metadata Title"
+        pdf.docinfo["/Author"] = "PDF Metadata Author"
+        pdf.save(source)
+
+    job = _dummy_job(tmp_path, name=source.name)
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
+
+    with zipfile.ZipFile(epub_path) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "PDF Metadata Title"
+        assert opf.findtext("opf:metadata/dc:creator", namespaces=NS) == "PDF Metadata Author"
+
+
+def test_epub_metadata_falls_back_to_title_author_filename_pattern(tmp_path):
+    import pikepdf
+
+    workspace = JobWorkspace(tmp_path / "job-filename-metadata")
+    workspace.create()
+    workspace.save_page_cleaned_paragraphs(1, [_para(1, "A paragraph of readable book text.")])
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0,
+        "chapter_count": 0, "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    source = tmp_path / "The Long and Hungry Road - Adrian Tchaikovsky.pdf"
+    with pikepdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.save(source)
+
+    job = _dummy_job(tmp_path, name=source.name)
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
+
+    with zipfile.ZipFile(epub_path) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "The Long and Hungry Road"
+        assert opf.findtext("opf:metadata/dc:creator", namespaces=NS) == "Adrian Tchaikovsky"
+
+
+def test_epub_metadata_sanitizes_pdf_title_and_author_before_fallback(tmp_path):
+    import pikepdf
+
+    workspace = JobWorkspace(tmp_path / "job-sanitized-metadata")
+    workspace.create()
+    workspace.save_page_cleaned_paragraphs(1, [_para(1, "A paragraph of readable book text.")])
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0,
+        "chapter_count": 0, "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    source = tmp_path / "Fallback Title - Fallback Author.pdf"
+    with pikepdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.docinfo["/Title"] = "\x01"
+        pdf.docinfo["/Author"] = "\x0b"
+        pdf.save(source)
+
+    job = _dummy_job(tmp_path, name=source.name)
+    epub_path = generate_job_epub(job, workspace, total_pages=1)
+
+    with zipfile.ZipFile(epub_path) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Fallback Title"
+        assert opf.findtext("opf:metadata/dc:creator", namespaces=NS) == "Fallback Author"
+
+
+def test_cached_epub_is_rebuilt_when_pdf_metadata_changes(tmp_path):
+    import pikepdf
+
+    workspace = JobWorkspace(tmp_path / "job-metadata-cache")
+    workspace.create()
+    workspace.save_page_cleaned_paragraphs(1, [_para(1, "A paragraph of readable book text.")])
+    workspace.save_structure_analysis({
+        "schema_version": 1, "total_pages": 1, "heading_count": 0,
+        "chapter_count": 0, "chapters": [],
+    })
+    workspace.save_page_structure(1, [])
+
+    source = tmp_path / "Cached Book - Cached Author.pdf"
+    with pikepdf.new() as pdf:
+        pdf.add_blank_page()
+        pdf.docinfo["/Title"] = "First PDF Title"
+        pdf.docinfo["/Author"] = "First PDF Author"
+        pdf.save(source)
+
+    job = _dummy_job(tmp_path, name=source.name)
+    first_epub = generate_job_epub(job, workspace, total_pages=1)
+    with zipfile.ZipFile(first_epub) as archive:
+        first_opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert first_opf.findtext("opf:metadata/dc:title", namespaces=NS) == "First PDF Title"
+
+    updated_source = tmp_path / "updated-source.pdf"
+    with pikepdf.open(source) as pdf:
+        pdf.docinfo["/Title"] = "Updated PDF Title"
+        pdf.docinfo["/Author"] = "Updated PDF Author"
+        pdf.save(updated_source)
+    updated_source.replace(source)
+
+    second_epub = generate_job_epub(job, workspace, total_pages=1)
+    assert second_epub == first_epub
+    with zipfile.ZipFile(second_epub) as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Updated PDF Title"
+        assert opf.findtext("opf:metadata/dc:creator", namespaces=NS) == "Updated PDF Author"

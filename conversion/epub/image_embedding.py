@@ -127,7 +127,7 @@ def has_current_image_layout(epub_path: Path | str) -> bool:
         with zipfile.ZipFile(epub_path, "r") as archive:
             return any(
                 name.startswith("OEBPS/chapter_") and name.endswith(".xhtml")
-                and b"inkslim-image-layout:4" in archive.read(name)
+                and b"inkslim-image-layout:5" in archive.read(name)
                 for name in archive.namelist()
             )
     except (OSError, zipfile.BadZipFile, KeyError):
@@ -230,8 +230,14 @@ def _select_anchor(
     return str(previous["id"])
 
 
-def _figure_markup(image: PageImage) -> bytes:
+def _figure_markup(image: PageImage, *, cover: bool = False) -> bytes:
     href = image.source_path
+    if cover:
+        return (
+            '<figure class="pdf-cover">'
+            f'<img src={quoteattr(href)} alt="Book cover"/>'
+            '</figure>'
+        ).encode("utf-8")
     alt = f"Image from source PDF page {image.page_number}"
     return (
         '<figure class="pdf-illustration">'
@@ -241,6 +247,19 @@ def _figure_markup(image: PageImage) -> bytes:
     ).encode("utf-8")
 
 
+def _select_page_start_anchor(
+    image: PageImage, records: list[dict[str, object]]
+) -> str | None:
+    """Place a page-sized image before the first text block on its source page."""
+    page_records = [
+        record for record in records
+        if record["page"] == image.page_number
+    ]
+    if not page_records:
+        return None
+    return str(page_records[0]["id"])
+
+
 def embed_pdf_images(
     epub_path: Path | str,
     workspace: JobWorkspace,
@@ -248,7 +267,7 @@ def embed_pdf_images(
     total_pages: int,
     page_classifications: Mapping[int, Mapping[str, object]] | None = None,
 ) -> int:
-    """Embed illustrations inline, keep promotional images separate, and mark a confident cover."""
+    """Embed source images in reading order and mark a confident cover."""
     assets = _load_assets(workspace, total_pages)
     if not assets:
         return 0
@@ -256,7 +275,6 @@ def embed_pdf_images(
     # Classification is advisory. Only a strong first-page cover candidate is
     # promoted to EPUB cover metadata; no extracted asset is discarded.
     cover_asset: tuple[PageImage, Path] | None = None
-    advert_assets: list[tuple[PageImage, Path]] = []
     if page_classifications:
         first_page = page_classifications.get(1, {})
         if (
@@ -269,18 +287,6 @@ def embed_pdf_images(
             ]
             if candidates:
                 cover_asset = max(candidates, key=lambda asset: asset[0].coverage)
-
-        advert_pages = {
-            page_number
-            for page_number, classification in page_classifications.items()
-            if classification.get("type") == "advert_candidate"
-            and float(classification.get("confidence", 0.0)) >= 0.65
-        }
-        advert_assets = [
-            asset for asset in assets
-            if asset[0].page_number in advert_pages
-            and (cover_asset is None or asset[0] != cover_asset[0])
-        ]
 
     epub_path = Path(epub_path)
     handle, temporary_name = tempfile.mkstemp(
@@ -314,9 +320,9 @@ def embed_pdf_images(
             ]
             if not chapter_paths:
                 raise EpubImageEmbeddingError("Generated EPUB has no chapter documents")
+            first_chapter = chapter_paths[0]
+            last_chapter = chapter_paths[-1]
 
-            metadata = opf_root.find(f"{{{_OPF_NS}}}metadata")
-            cover_manifest_id = None
             for index, (image, _asset_path) in enumerate(assets, start=1):
                 item_id = f"pdf-image-{index:04d}"
                 attributes = {
@@ -326,7 +332,6 @@ def embed_pdf_images(
                 }
                 if cover_asset is not None and image == cover_asset[0]:
                     attributes["properties"] = "cover-image"
-                    cover_manifest_id = item_id
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", attributes))
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
 
@@ -334,21 +339,20 @@ def embed_pdf_images(
             css_data = None
             if css_info is not None:
                 css_data = source.read(css_info) + (
-                    b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
-                    b"\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\n.pdf-illustration, .pdf-cover { margin: 1.5em 0; text-align: center; }"
+                    b"\n.pdf-illustration img, .pdf-cover img { max-width: 100%; height: auto; }"
                     b"\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
                 )
 
             # Keep only one uncompressed chapter in memory at a time. Images are
             # assigned as the spine is streamed, and unresolved assets flow into
             # the final chapter's appendix.
+            # Every source image stays in source-page order. Page classification
+            # must not move source content to the end of the book.
             pending = [
                 asset for asset in assets
-                if asset not in advert_assets
-                and (cover_asset is None or asset != cover_asset)
+                if cover_asset is None or asset != cover_asset
             ]
-            first_chapter = chapter_paths[0]
-            last_chapter = chapter_paths[-1]
 
             with zipfile.ZipFile(temporary, "w") as target:
                 first = zipfile.ZipInfo("mimetype", date_time=(1980, 1, 1, 0, 0, 0))
@@ -378,29 +382,44 @@ def embed_pdf_images(
                     info = info_by_name[chapter_path]
                     chapter_bytes = source.read(info)
                     records = _paragraph_records(chapter_bytes)
-                    anchored: dict[str, list[PageImage]] = {}
+                    anchored: dict[str, list[tuple[PageImage, bool]]] = {}
                     remaining: list[tuple[PageImage, Path]] = []
 
                     for image, asset_path in pending:
                         anchor = _select_anchor(image, records)
+                        insert_before = False
+                        # Large page images often occupy the whole page and cannot fit
+                        # in a text gap. Keep them at the beginning of their source page.
+                        if anchor is None and image.coverage >= 0.45:
+                            anchor = _select_page_start_anchor(image, records)
+                            insert_before = anchor is not None
                         if anchor is None:
                             remaining.append((image, asset_path))
                         else:
-                            anchored.setdefault(anchor, []).append(image)
+                            anchored.setdefault(anchor, []).append((image, insert_before))
                     pending = remaining
 
-                    for anchor_id, images in anchored.items():
+                    for anchor_id, placements in anchored.items():
                         escaped_id = re.escape(anchor_id.encode("ascii"))
                         pattern = re.compile(
                             rb'(<(?:p|h2|h3)\b(?=[^>]*\bid="' + escaped_id
                             + rb'")[^>]*>.*?</(?:p|h2|h3)>)',
                             re.DOTALL,
                         )
-                        markup = b"\n" + b"\n".join(
-                            _figure_markup(image) for image in images
+                        before_markup = b"\n".join(
+                            _figure_markup(image)
+                            for image, insert_before in placements if insert_before
+                        )
+                        after_markup = b"\n".join(
+                            _figure_markup(image)
+                            for image, insert_before in placements if not insert_before
                         )
                         chapter_bytes, count = pattern.subn(
-                            lambda match: match.group(1) + markup,
+                            lambda match: (
+                                before_markup + b"\n" if before_markup else b""
+                            ) + match.group(1) + (
+                                b"\n" + after_markup if after_markup else b""
+                            ),
                             chapter_bytes,
                             count=1,
                         )
@@ -410,37 +429,40 @@ def embed_pdf_images(
                             )
 
                     if chapter_path == first_chapter:
+                        if cover_asset is not None:
+                            cover_markup = b"\n" + _figure_markup(cover_asset[0], cover=True)
+                            chapter_bytes, count = re.subn(
+                                rb"(<section\b[^>]*>)",
+                                lambda match: match.group(1) + cover_markup,
+                                chapter_bytes,
+                                count=1,
+                            )
+                            if count != 1:
+                                raise EpubImageEmbeddingError(
+                                    "Could not place the cover at the start of the first EPUB chapter"
+                                )
                         if _XHTML_END not in chapter_bytes:
                             raise EpubImageEmbeddingError(
                                 "First EPUB chapter has no content section"
                             )
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END,
-                            b"<!-- inkslim-image-layout:4 -->\n</section>",
+                            b"<!-- inkslim-image-layout:5 -->\n</section>",
                             1,
                         )
 
-                    if chapter_path == last_chapter and (pending or advert_assets):
+                    if chapter_path == last_chapter and pending:
                         if _XHTML_END not in chapter_bytes:
                             raise EpubImageEmbeddingError(
                                 "Final EPUB chapter has no content section"
                             )
-                        appendix_parts = []
-                        if pending:
-                            appendix_parts.extend([
-                                b"\n<h2>Illustrations</h2>\n",
-                                b"\n".join(
-                                    _figure_markup(image) for image, _asset_path in pending
-                                ),
-                            ])
-                        if advert_assets:
-                            appendix_parts.extend([
-                                b"\n<h2>Promotional material</h2>\n",
-                                b"\n".join(
-                                    _figure_markup(image) for image, _asset_path in advert_assets
-                                ),
-                            ])
-                        appendix_markup = b"\n".join(appendix_parts) + b"\n"
+                        appendix_markup = (
+                            b"\n<h2>Illustrations</h2>\n"
+                            + b"\n".join(
+                                _figure_markup(image) for image, _asset_path in pending
+                            )
+                            + b"\n"
+                        )
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END, appendix_markup + _XHTML_END, 1
                         )

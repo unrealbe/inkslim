@@ -179,6 +179,7 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
     job = SimpleNamespace(
         id="12345678-1234-5678-1234-567812345678",
         input_name="book.pdf",
+        input_path=str(tmp_path / "book.pdf"),
         language="eng",
     )
     document = SimpleNamespace(
@@ -354,8 +355,8 @@ def test_places_image_between_paragraphs_on_its_source_page(tmp_path):
         assert before < figure < after
         assert b"<h2>Illustrations</h2>" not in chapter
         assert b"data-source-page=\"1\"" in chapter
-        assert b"<!-- inkslim-image-layout:4 -->\n</section>" in chapter
-        assert b"<!-- inkslim-image-layout:4 -->\\n</section>" not in chapter
+        assert b"<!-- inkslim-image-layout:5 -->\n</section>" in chapter
+        assert b"<!-- inkslim-image-layout:5 -->\\n</section>" not in chapter
         assert f"OEBPS/{relative_path}" in archive.namelist()
 
 
@@ -435,11 +436,20 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         assert len(cover_items) == 1
         assert cover_items[0].get("href") == cover_path
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
-        assert not chapter.findall(".//x:figure", NS)
+        cover = chapter.find(".//x:figure[@class='pdf-cover']", NS)
+        assert cover is not None
+        assert cover.find("x:img", NS).get("src") == cover_path
+        section = chapter.find(".//x:section", NS)
+        assert section is not None
+        first_heading = section.find("x:h1", NS)
+        assert first_heading is not None
+        assert list(section).index(cover) < list(section).index(first_heading)
+        assert len(chapter.findall(".//x:figure", NS)) == 1
+        assert chapter.find(".//x:p", NS).text == "Book text."
         assert f"OEBPS/{cover_path}" in archive.namelist()
 
 
-def test_advert_candidate_images_are_preserved_in_separate_appendix(tmp_path):
+def test_advert_candidate_images_stay_at_source_page_position(tmp_path):
     workspace = JobWorkspace(tmp_path / "job")
     workspace.create()
     advert_path = _save_image(workspace, 2, 1, "blue")
@@ -463,9 +473,9 @@ def test_advert_candidate_images_are_preserved_in_separate_appendix(tmp_path):
 
     with zipfile.ZipFile(epub) as archive:
         chapter = archive.read("OEBPS/chapter_0001.xhtml")
-        assert b"Promotional material" in chapter
+        assert b"Promotional material" not in chapter
         assert b"Illustrations" not in chapter
-        assert chapter.index(b"Text after.") < chapter.index(b"Promotional material")
+        assert chapter.index(advert_path.encode("utf-8")) < chapter.index(b"Text before.")
         assert advert_path.encode("utf-8") in chapter
         assert f"OEBPS/{advert_path}" in archive.namelist()
 
@@ -497,3 +507,60 @@ def test_low_confidence_cover_candidate_is_not_promoted_or_removed(tmp_path):
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
         assert len(chapter.findall(".//x:figure", NS)) == 1
         assert f"OEBPS/{cover_path}" in archive.namelist()
+
+
+def test_large_page_images_are_inserted_before_text_on_their_source_pages(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    page_two_path = _save_image(workspace, 2, 1, "blue")
+    page_three_path = _save_image(workspace, 3, 1, "green")
+    epub = build_epub(
+        tmp_path / "full-page-images.epub",
+        EpubMetadata(title="Source page order"),
+        [Chapter("Chapter 1", [
+            Block("p", "Page two text.", 2, 1, (0.1, 0.1, 0.9, 0.2)),
+            Block("p", "Page three text.", 3, 1, (0.1, 0.1, 0.9, 0.2)),
+        ])],
+    )
+
+    assert embed_pdf_images(
+        epub,
+        workspace,
+        total_pages=3,
+        page_classifications={
+            2: {"type": "advert_candidate", "confidence": 0.68},
+            3: {"type": "advert_candidate", "confidence": 0.68},
+        },
+    ) == 2
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        page_two_figure = chapter.index(page_two_path.encode("utf-8"))
+        page_two_text = chapter.index(b"Page two text.")
+        page_three_figure = chapter.index(page_three_path.encode("utf-8"))
+        page_three_text = chapter.index(b"Page three text.")
+        assert page_two_figure < page_two_text < page_three_figure < page_three_text
+        assert b"Promotional material" not in chapter
+        assert b"Illustrations" not in chapter
+
+
+
+def test_page_image_without_text_anchor_on_its_page_stays_in_appendix(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    page_two_path = _save_image(workspace, 2, 1, "blue")
+    epub = build_epub(
+        tmp_path / "unanchored-page-image.epub",
+        EpubMetadata(title="Unanchored page image"),
+        [Chapter("Chapter 1", [
+            Block("p", "Page three text.", 3, 1, (0.1, 0.1, 0.9, 0.2)),
+        ])],
+    )
+
+    assert embed_pdf_images(epub, workspace, total_pages=3) == 1
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        assert b"Page three text." in chapter
+        assert chapter.index(b"Page three text.") < chapter.index(b"<h2>Illustrations</h2>")
+        assert page_two_path.encode("utf-8") in chapter
