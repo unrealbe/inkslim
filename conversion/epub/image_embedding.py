@@ -322,9 +322,9 @@ def embed_pdf_images(
             ]
             if not chapter_paths:
                 raise EpubImageEmbeddingError("Generated EPUB has no chapter documents")
+            first_chapter = chapter_paths[0]
+            last_chapter = chapter_paths[-1]
 
-            metadata = opf_root.find(f"{{{_OPF_NS}}}metadata")
-            cover_manifest_id = None
             for index, (image, _asset_path) in enumerate(assets, start=1):
                 item_id = f"pdf-image-{index:04d}"
                 attributes = {
@@ -334,7 +334,6 @@ def embed_pdf_images(
                 }
                 if cover_asset is not None and image == cover_asset[0]:
                     attributes["properties"] = "cover-image"
-                    cover_manifest_id = item_id
                 manifest.append(ET.Element(f"{{{_OPF_NS}}}item", attributes))
             opf_bytes = ET.tostring(opf_root, encoding="utf-8", xml_declaration=True)
 
