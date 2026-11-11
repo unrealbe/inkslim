@@ -79,3 +79,15 @@ def test_dashboard_stylesheet_is_served():
     assert ".app-shell" in css
     assert ".sidebar" in css
     assert "@media(max-width:760px)" in css
+
+
+
+def test_version_endpoint_exposes_release_and_commit_metadata(monkeypatch):
+    monkeypatch.setattr(app, "APP_VERSION", "0.1.0-dev")
+    monkeypatch.setattr(app, "APP_COMMIT", "abcdef1234567890")
+    response = app.app.test_client().get("/api/version")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "version": "0.1.0-dev",
+        "commit": "abcdef1234567890",
+    }
