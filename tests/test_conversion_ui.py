@@ -57,6 +57,10 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'imageStats.optimization_saved_bytes' in html
     assert 'report.document_structure' in html
     assert 'EPUB structure check' in html
+    assert 'Possible repeated headings: ' in html
+    assert 'duplicateHeadings.count + " · Source pages " + duplicatePages.join(", ")' in html
+    assert '...(Array.isArray(structure.warnings) ? structure.warnings : [])' in html
+    assert '(warning.message || warning.code || "Content warning")' in html
     assert 'POSSIBLE_DUPLICATE_HEADINGS' not in html
     assert 'Possible printed page-number artefacts' in html
     assert 'images included in the EPUB' in html
