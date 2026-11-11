@@ -251,15 +251,13 @@ def _select_page_start_anchor(
     image: PageImage, records: list[dict[str, object]]
 ) -> str | None:
     """Place a page-sized image before the first text block on its source page."""
-    candidates = [
+    page_records = [
         record for record in records
-        if record["page"] >= image.page_number
+        if record["page"] == image.page_number
     ]
-    if not candidates:
+    if not page_records:
         return None
-    same_page = [record for record in candidates if record["page"] == image.page_number]
-    selected = same_page[0] if same_page else candidates[0]
-    return str(selected["id"])
+    return str(page_records[0]["id"])
 
 
 def embed_pdf_images(
