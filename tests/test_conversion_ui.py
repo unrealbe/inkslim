@@ -55,6 +55,10 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'warning.message || warning.code' in html
     assert 'imageStats.embedded_in_epub' in html
     assert 'imageStats.optimization_saved_bytes' in html
+    assert 'report.document_structure' in html
+    assert 'EPUB structure check' in html
+    assert 'POSSIBLE_DUPLICATE_HEADINGS' not in html
+    assert 'Possible printed page-number artefacts' in html
     assert 'images included in the EPUB' in html
     assert 'files.input_size_bytes' in html
     assert 'completed · PDF' in html
