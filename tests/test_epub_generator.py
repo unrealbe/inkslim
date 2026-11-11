@@ -425,6 +425,7 @@ def test_cover_candidate_ocr_text_is_omitted_but_other_pages_remain():
     classifications = {
         1: {
             "type": "cover_candidate",
+            "confidence": 0.91,
             "signals": {
                 "text_source": "tesseract",
                 "text_word_count": 11,
