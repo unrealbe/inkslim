@@ -515,7 +515,7 @@ def build_quality_report(
         "generated_at": timestamp.astimezone(UTC).isoformat(),
         "generator": {
             "name": "inkslim",
-            "version": os.environ.get("INKSLIM_VERSION", "development"),
+            "version": os.environ.get("INKSLIM_VERSION", "0.1.0-dev").removeprefix("v"),
             "commit": os.environ.get("INKSLIM_COMMIT") or None,
         },
         "job": {
