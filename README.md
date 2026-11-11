@@ -38,7 +38,7 @@ It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are 
 - **History controls:** clear completed or failed results without cancelling queued or running jobs.
 - **Self-hosted:** Docker image for linux/amd64 and linux/arm64.
 - **Optional HTTP Basic Authentication** and health-check endpoint.
-- **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
+- **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Reconstructed text remains real EPUB text; extracted illustrations are recompressed before embedding. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
 - **Modern dark dashboard:** a responsive workspace with sidebar navigation, clear upload flow and conversion history.
 
 ## Which mode should I use?
@@ -161,7 +161,7 @@ For example, 8125:8080 makes Inkslim available at http://NAS-IP:8125/. The conta
 
 ## Using the web interface
 
-The web interface uses a responsive dark dashboard with navigation for the main workspace and conversion histories. The upload area is shared by both operations; choose whether to optimize files or convert PDFs to EPUB before adding files.
+The web interface uses a responsive dark dashboard with navigation for the main workspace and conversion histories. Choose the operation first, select or drop the files, review the selected-file list, and explicitly press **Start processing**. Uploading or dropping a file never starts a conversion by itself.
 
 ### EPUB settings
 
@@ -179,19 +179,19 @@ Images are fitted inside the selected width and height. They are never enlarged.
 
 ### PDF-to-EPUB conversion
 
-Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned books. Select one or more PDF files, choose the OCR language and submit. The conversion runs as a background job, so it does not hold the upload request open while OCR and EPUB generation run.
+Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scanned books. Select one OCR language per book (English is the default), add one or more PDF files, then press **Start processing**. The conversion runs as a background job, so it does not hold the upload request open while OCR and EPUB generation run.
 
 | Language | OCR selection |
 |---|---|
 | English (default) | English OCR |
 | Dutch / French / German | Single-language OCR |
-| Dutch + English | Both language models |
 | French / German | Single-language OCR |
-| French + English | Both language models |
 
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
-The OCR language selection controls which Tesseract models may be used. EPUB document language is inferred separately from reconstructed book text when at least two sufficiently long pages support a language with a clear weighted majority; otherwise Inkslim falls back to the selected OCR language. The inferred language and its diagnostics are stored without including recognized book text in the report. Conversion storage quota is checked against the source file size before it is copied into a persistent job workspace, and checked again after copying to handle concurrent uploads.
+The OCR language selection controls the single Tesseract model used for the book. EPUB document language is inferred separately from reconstructed book text when at least two sufficiently long pages support a language with a clear weighted majority; otherwise Inkslim falls back to the selected OCR language. The inferred language and its diagnostics are stored without including recognized book text in the report. Conversion storage quota is checked against the source file size before it is copied into a persistent job workspace, and checked again after copying to handle concurrent uploads.
+
+Extracted JPEG images are re-encoded at quality 85 with optimized progressive encoding when this reduces their size by at least 10%; PNG images are losslessly optimized and retain transparency. Images are never upscaled, and the original asset is retained when re-encoding does not produce a meaningful size reduction. The quality report records the number of optimized images and the bytes saved.
 
 The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are placed inline after a source text block when page geometry provides a clear, bounded anchor. Images without a reliable anchor remain in a labelled Illustrations section at the end of the book. Semantic page classification is included in the quality report and guides conservative image handling: a first-page cover candidate is promoted only at classification confidence ≥0.75 with a dominant image covering ≥45% of the page; advertisement candidates at confidence ≥0.65 are retained in a separate Promotional material section rather than placed inline. No image is discarded; uncertain images keep the existing inline/Illustrations fallback. OCR is unchanged, and duplicate-cover removal remains future work.
 
