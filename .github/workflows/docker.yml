@@ -33,7 +33,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           build-args: |
-            INKSLIM_VERSION=0.0.0-dev
+            INKSLIM_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0-dev' }}
             INKSLIM_COMMIT=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

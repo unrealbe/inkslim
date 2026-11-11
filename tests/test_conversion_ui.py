@@ -13,6 +13,16 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'value="shrink"' in html
     assert 'value="convert"' in html
     assert 'id="conversion-options"' in html
+    assert html.index('id="operation-card"') < html.index('id="drop"')
+    assert 'id="selection-panel"' in html
+    assert 'id="selected-files"' in html
+    assert 'id="start-processing"' in html
+    assert 'Start processing' in html
+    assert 'href="#operation-card"' in html
+    assert 'href="#results"' in html
+    assert 'id="empty-history"' in html
+    assert 'value="nld+eng"' not in html
+    assert 'value="fra+eng"' not in html
     assert 'id="conversion-language"' in html
     assert 'id="report-panel"' in html
     assert 'Print / Save as PDF' in html
@@ -44,7 +54,10 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'warning.page_numbers.join(", ")' in html
     assert 'warning.message || warning.code' in html
     assert 'imageStats.embedded_in_epub' in html
+    assert 'imageStats.optimization_saved_bytes' in html
     assert 'images included in the EPUB' in html
+    assert 'files.input_size_bytes' in html
+    assert 'completed · PDF' in html
 
 
 def test_existing_shrink_interface_remains_available():
@@ -68,3 +81,15 @@ def test_dashboard_stylesheet_is_served():
     assert ".app-shell" in css
     assert ".sidebar" in css
     assert "@media(max-width:760px)" in css
+
+
+
+def test_version_endpoint_exposes_release_and_commit_metadata(monkeypatch):
+    monkeypatch.setattr(app, "APP_VERSION", "0.1.0-dev")
+    monkeypatch.setattr(app, "APP_COMMIT", "abcdef1234567890")
+    response = app.app.test_client().get("/api/version")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "version": "0.1.0-dev",
+        "commit": "abcdef1234567890",
+    }

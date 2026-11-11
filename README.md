@@ -38,7 +38,7 @@ It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are 
 - **History controls:** clear completed or failed results without cancelling queued or running jobs.
 - **Self-hosted:** Docker image for linux/amd64 and linux/arm64.
 - **Optional HTTP Basic Authentication** and health-check endpoint.
-- **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
+- **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Reconstructed text remains real EPUB text; extracted illustrations are recompressed before embedding. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
 - **Modern dark dashboard:** a responsive workspace with sidebar navigation, clear upload flow and conversion history.
 
 ## Which mode should I use?
@@ -123,6 +123,8 @@ The Compose file on your NAS is a local file. Pulling a new image does **not** c
 | `JOB_RETENTION_HOURS` | `24` | Retain completed, failed and cancelled jobs for this many hours after completion. |
 | `MAX_CONVERSION_STORAGE_MB` | `5120` | Admission quota for persistent conversion job workspaces; a new upload returns HTTP 507 when usage is over the limit. |
 
+The dashboard displays the application version and short commit identifier. Main-branch images use `0.1.0-dev`; a Docker build from a `v0.1.0` Git tag reports application version `0.1.0`. The same version and full commit are included in conversion quality reports and available from `/api/version`.
+
 The supplied docker-compose.yml sets the host port mapping to 8125:8080 and configures the following environment variables.
 
 | Variable | Default | Description |
@@ -161,7 +163,7 @@ For example, 8125:8080 makes Inkslim available at http://NAS-IP:8125/. The conta
 
 ## Using the web interface
 
-The web interface uses a responsive dark dashboard with navigation for the main workspace and conversion histories. The upload area is shared by both operations; choose whether to optimize files or convert PDFs to EPUB before adding files.
+The web interface uses a responsive dark dashboard with navigation for the main workspace and conversion histories. Choose the operation first, select or drop the files, review the selected-file list, and explicitly press **Start processing**. Uploading or dropping a file never starts a conversion by itself.
 
 ### EPUB settings
 
@@ -179,17 +181,22 @@ Images are fitted inside the selected width and height. They are never enlarged.
 
 ### PDF-to-EPUB conversion
 
-Use the separate **Convert PDF to EPUB** panel for text-based PDFs and scanned books. Select one or more PDF files, choose the OCR language and submit. The conversion runs as a background job, so it does not hold the upload request open while OCR and EPUB generation run.
+Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scanned books. Select one OCR language per book (English is the default), add one or more PDF files, then press **Start processing**. The conversion runs as a background job, so it does not hold the upload request open while OCR and EPUB generation run.
 
 | Language | OCR selection |
 |---|---|
 | English (default) | English OCR |
-| Dutch / French / German | Single-language OCR |
-| Dutch + English | Both language models |
-| French / German | Single-language OCR |
-| French + English | Both language models |
+| Dutch | Dutch OCR |
+| French | French OCR |
+| German | German OCR |
+
+The dashboard offers one OCR language per book. The HTTP API retains support for combined language codes for existing integrations.
 
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
+
+The OCR language selection controls the single Tesseract model used for the book. EPUB document language is inferred separately from reconstructed book text when at least two sufficiently long pages support a language with a clear weighted majority; otherwise Inkslim falls back to the selected OCR language. The inferred language and its diagnostics are stored without including recognized book text in the report. Conversion storage quota is checked against the source file size before it is copied into a persistent job workspace, and checked again after copying to handle concurrent uploads.
+
+Extracted JPEG images are re-encoded at quality 85 with optimized progressive encoding when this reduces their size by at least 10%; PNG images are losslessly optimized and retain transparency. Images are never upscaled, and the original asset is retained when re-encoding does not produce a meaningful size reduction. The quality report records the number of optimized images and the bytes saved.
 
 The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are placed inline after a source text block when page geometry provides a clear, bounded anchor. Images without a reliable anchor remain in a labelled Illustrations section at the end of the book. Semantic page classification is included in the quality report and guides conservative image handling: a first-page cover candidate is promoted only at classification confidence ≥0.75 with a dominant image covering ≥45% of the page; advertisement candidates at confidence ≥0.65 are retained in a separate Promotional material section rather than placed inline. No image is discarded; uncertain images keep the existing inline/Illustrations fallback. OCR is unchanged, and duplicate-cover removal remains future work.
 
@@ -304,7 +311,7 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 6 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 7 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
@@ -337,8 +344,9 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 6), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
-- Exact duplicate-cover diagnostics under `images.duplicate_cover_detection`: evaluation status (`complete`, `incomplete` or `not_evaluated`), SHA-256 byte-comparison method, selected first-page cover candidate, matching later page/image indexes, and an explicit indication that no images were removed.
+- Per-page and aggregate JSON quality report (schema version 7), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Exact and perceptual duplicate-cover diagnostics: SHA-256 exact-byte matches plus 64-bit difference-hash near matches with conservative aspect-ratio and image-coverage thresholds. Detection is report-only; images are never automatically removed.
+- EPUB document language inferred separately from OCR language selection, using reconstructed page text when sufficient evidence is available.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
@@ -348,11 +356,11 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 **Next implementation milestones**
 
-1. Review exact duplicate-cover diagnostics and consider removal only after real-book validation; semantic cover metadata and advertisement separation are implemented.
+1. Review exact and perceptual duplicate-cover diagnostics against real books; consider any removal only after separate validation. Semantic cover metadata and advertisement separation are implemented.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
-Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are placed immediately after a source text block (paragraph or heading) only when the image fits in a clear vertical gap between two text blocks on the same source page. Images without a bounded, unambiguous text anchor remain in a labelled Illustrations section. Page classification now estimates text, scanned text, mixed content, cover candidates, illustration candidates and advertisement candidates. Pages without text or embedded image objects remain unknown because vector drawing content is not inspected. Each estimate includes confidence and reasons. Classification does not alter OCR or discard images. A high-confidence first-page cover candidate is marked using EPUB cover metadata; advertisement-candidate images are kept in a separate Promotional material section. Low-confidence candidates retain the existing safe fallback. Exact duplicate-cover detection is report-only: it compares extracted image bytes with SHA-256 against a qualifying first-page cover and reports byte-identical later-page images. It does not remove images; visual near-duplicate matching and removal are not implemented.
+Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. Extracted images are placed immediately after a source text block (paragraph or heading) only when the image fits in a clear vertical gap between two text blocks on the same source page. Images without a bounded, unambiguous text anchor remain in a labelled Illustrations section. Page classification now estimates text, scanned text, mixed content, cover candidates, illustration candidates and advertisement candidates. Pages without text or embedded image objects remain unknown because vector drawing content is not inspected. Each estimate includes confidence and reasons. Classification does not alter OCR or discard images. A high-confidence first-page cover candidate is marked using EPUB cover metadata; advertisement-candidate images are kept in a separate Promotional material section. Low-confidence candidates retain the existing safe fallback. Duplicate-cover detection is report-only: SHA-256 reports byte-identical extracted images, while a 64-bit difference hash reports visually near-identical candidates when Hamming distance is ≤5, aspect-ratio difference is ≤0.08 and image coverage is ≥40%. These diagnostics never remove images or pages automatically.
 
 ### Persistent data
 
@@ -420,6 +428,7 @@ The web application exposes a small API:
 | DELETE | /api/conversions/{id} | Cancel a queued or active conversion. |
 | GET | /api/conversions/{id}/download | Download the validated EPUB after completion. |
 | GET | /api/conversions/{id}/report | Download the JSON quality report after completion. |
+| GET | /api/version | Read the application version and full commit identifier. |
 
 ### PDF-to-EPUB conversion API
 
@@ -493,14 +502,14 @@ HTTP Basic Authentication should be used over HTTPS when credentials or document
 - Some PDFs may not become smaller. Already optimized or bilevel scans can be left unchanged.
 - Rewriting a PDF can invalidate digital signatures and may affect interactive features.
 - E-reader mode rasterizes pages. Text is no longer selectable or searchable, and links, bookmarks and interactive controls are not retained as functional PDF elements.
-- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: first-page cover candidates require confidence ≥0.75 and image coverage ≥45%, while advertisement candidates require confidence ≥0.65. Qualifying covers are marked in EPUB metadata, and advertisement images are preserved in a separate section. Exact duplicate-cover diagnostics use SHA-256 byte equality and do not remove images; near-duplicate visual matching and any removal behavior remain future work.
+- **PDF-to-EPUB is available in the web interface.** The backend analyzes PDFs, extracts native text, runs OCR where needed, reconstructs document structure and generates a structurally validated EPUB. Extracted source-PDF images are placed inline when a clear geometric text anchor exists; uncertain placements remain in a labelled Illustrations section. Semantic page classification guides conservative image handling: first-page cover candidates require confidence ≥0.75 and image coverage ≥45%, while advertisement candidates require confidence ≥0.65. Qualifying covers are marked in EPUB metadata, and advertisement images are preserved in a separate section. Exact duplicate-cover diagnostics use SHA-256 byte equality, and perceptual near-duplicate diagnostics use a 64-bit difference hash. Both are report-only; automatic image removal remains future work.
 
 ### General
 
 - Large files and high page counts can take a long time and use CPU and temporary disk space. Processing speed depends on the host hardware.
 - The existing `/shrink` endpoint remains synchronous and independent of the conversion worker.
 - The conversion worker is configured for one OCR worker in V1. It uses a local SQLite database in the shared Docker volume; use a local Docker volume or local filesystem, not NFS/SMB, for this database.
-- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them. Exact duplicate-cover diagnostics compare original extracted bytes by SHA-256 and report matches without deleting images; near-duplicate matching and removal remain future work. Automatic cleanup of expired terminal jobs is enabled.
+- The PDF-to-EPUB workflow embeds extracted source-PDF images inline when a bounded geometric anchor is available and otherwise retains them in an Illustrations section. Semantic page classification guides cover metadata and separates advertisement-candidate images without deleting them. Exact duplicate-cover diagnostics compare original extracted bytes by SHA-256; perceptual near-duplicate diagnostics use a 64-bit difference hash. Both report matches without deleting images; automatic removal remains future work. Automatic cleanup of expired terminal jobs is enabled.
 
 ## Troubleshooting
 

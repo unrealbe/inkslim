@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..document import build_document_model
 from ..pdf.content_classification import classify_page_content
-from ..language import epub_language_for_selection
+from ..language import epub_language_for_selection, infer_document_language
 from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobProcessingError
@@ -83,6 +83,7 @@ def generate_job_epub(
         is_valid_epub(destination)
         and embedded_image_count(destination) == expected_images
         and (expected_images == 0 or has_current_image_layout(destination))
+        and workspace.load_document_language_analysis() is not None
     ):
         logger.info("Reusing existing valid EPUB output for job %s: %s", job.id, destination)
         return destination
@@ -105,9 +106,23 @@ def generate_job_epub(
         number: workspace.load_page_structure(number) or []
         for number in range(1, total_pages + 1)
     }
+    language_pages = {
+        page_number: " ".join(
+            str(paragraph.get("text", "")).strip()
+            for paragraph in paragraphs
+            if str(paragraph.get("text", "")).strip()
+        )
+        for page_number, paragraphs in cleaned_pages.items()
+    }
+    document_language, language_diagnostics = infer_document_language(
+        language_pages,
+        fallback_selection=job.language,
+    )
+    workspace.save_document_language_analysis(language_diagnostics)
+
     doc = build_document_model(
         cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
-        title=_display_title(job.input_name), language=epub_language_for_selection(job.language),
+        title=_display_title(job.input_name), language=document_language,
     )
     doc.metadata.identifier = f"urn:uuid:{job.id}"
     workspace.save_document_model(doc)

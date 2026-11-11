@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, UnidentifiedImageError
+
 from .models import Job, PageResult, TextSource
 from .language import detect_page_language, ocr_languages_for_selection
 from .pdf.models import PageAnalysis, PageDecision
@@ -19,7 +21,7 @@ from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 from .text_fidelity import compare_text_fidelity, summarize_text_fidelity
 
-REPORT_SCHEMA_VERSION = 6
+REPORT_SCHEMA_VERSION = 8
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -121,20 +123,19 @@ def _duplicate_cover_statistics(
     total_pages: int,
     classifications: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Find later images that are byte-identical to a confident first-page cover.
-
-    This is deliberately diagnostic only: it never removes or rewrites an asset.
-    SHA-256 is calculated over the original extracted file bytes, not a rendered
-    or normalized image, so visually similar encodings are not called exact.
-    """
+    """Diagnose exact and perceptual cover duplicates without modifying assets."""
     result: dict[str, Any] = {
         "status": "not_evaluated",
-        "method": "sha256_exact_file_bytes",
+        "method": "sha256_exact_file_bytes_and_dhash64",
         "cover_candidate": None,
         "duplicate_count": 0,
         "matches": [],
+        "near_duplicate_count": 0,
+        "near_matches": [],
+        "perceptual_hamming_threshold": 5,
         "removed_count": 0,
         "automatic_removal_enabled": False,
+        "warnings": [],
     }
     first_checkpoint = workspace.load_page_images(1)
     if (
@@ -143,6 +144,7 @@ def _duplicate_cover_statistics(
         or first_checkpoint.detected_count != len(first_checkpoint.images)
     ):
         result["status"] = "incomplete"
+        result["warnings"].append("FIRST_PAGE_IMAGE_CHECKPOINT_INCOMPLETE")
         return result
 
     classification = classifications.get(1, {})
@@ -152,12 +154,10 @@ def _duplicate_cover_statistics(
         confidence = 0.0
     if classification.get("type") != "cover_candidate" or confidence < 0.75:
         return result
-    cover_candidates = [
-        image for image in first_checkpoint.images if image.coverage >= 0.45
-    ]
-    if not cover_candidates:
+    candidates = [image for image in first_checkpoint.images if image.coverage >= 0.45]
+    if not candidates:
         return result
-    cover = max(cover_candidates, key=lambda image: image.coverage)
+    cover = max(candidates, key=lambda image: image.coverage)
     result["cover_candidate"] = {
         "page_number": 1,
         "image_index": cover.image_index,
@@ -167,7 +167,7 @@ def _duplicate_cover_statistics(
 
     root = workspace.root.resolve()
 
-    def exact_digest(image: Any) -> tuple[str, int] | None:
+    def safe_asset(image: Any) -> Path | None:
         relative = Path(image.source_path)
         if relative.is_absolute() or ".." in relative.parts:
             return None
@@ -180,6 +180,15 @@ def _duplicate_cover_statistics(
                 or not resolved.is_file()
             ):
                 return None
+            return resolved
+        except (OSError, RuntimeError):
+            return None
+
+    def exact_digest(image: Any) -> tuple[str, int] | None:
+        resolved = safe_asset(image)
+        if resolved is None:
+            return None
+        try:
             digest = hashlib.sha256()
             size = 0
             with resolved.open("rb") as stream:
@@ -193,37 +202,83 @@ def _duplicate_cover_statistics(
                     digest.update(chunk)
                     size += len(chunk)
             return (digest.hexdigest(), size) if size > 8 else None
-        except (OSError, RuntimeError):
+        except OSError:
+            return None
+
+    def difference_hash(image: Any) -> int | None:
+        resolved = safe_asset(image)
+        if resolved is None:
+            return None
+        try:
+            with Image.open(resolved) as opened:
+                opened.verify()
+            with Image.open(resolved) as opened:
+                grayscale = opened.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+                pixels = list(grayscale.getdata())
+            value = 0
+            for row in range(8):
+                offset = row * 9
+                for column in range(8):
+                    value = (value << 1) | int(
+                        pixels[offset + column] > pixels[offset + column + 1]
+                    )
+            return value
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             return None
 
     cover_digest = exact_digest(cover)
-    if cover_digest is None:
+    cover_hash = difference_hash(cover)
+    if cover_digest is None or cover_hash is None:
         result["status"] = "incomplete"
+        result["warnings"].append("COVER_IMAGE_UNREADABLE_OR_INVALID")
         return result
 
-    complete = first_checkpoint.detected_count == len(first_checkpoint.images)
-    matches: list[dict[str, int]] = []
+    cover_ratio = cover.width / cover.height if cover.height else 0
+    complete = True
+    exact_matches: list[dict[str, int]] = []
+    near_matches: list[dict[str, int]] = []
+    exact_keys: set[tuple[int, int]] = set()
+
     for page_number in range(2, total_pages + 1):
         checkpoint = workspace.load_page_images(page_number)
         if checkpoint is None or checkpoint.detected_count is None:
             complete = False
+            result["warnings"].append(f"IMAGE_CHECKPOINT_MISSING:{page_number}")
             continue
         if checkpoint.detected_count != len(checkpoint.images):
             complete = False
         for image in checkpoint.images:
-            image_digest = exact_digest(image)
-            if image_digest is None:
+            key = (page_number, image.image_index)
+            digest = exact_digest(image)
+            perceptual_hash = difference_hash(image) if image.coverage >= 0.40 else None
+            if digest is None:
+                complete = False
+                result["warnings"].append(f"IMAGE_ASSET_UNREADABLE:{page_number}:{image.image_index}")
+            elif digest == cover_digest:
+                exact_matches.append({"page_number": page_number, "image_index": image.image_index})
+                exact_keys.add(key)
+
+            if image.coverage < 0.40:
+                continue
+            ratio = image.width / image.height if image.height else 0
+            if not ratio or not cover_ratio or abs(ratio - cover_ratio) > 0.08:
+                continue
+            if perceptual_hash is None:
                 complete = False
                 continue
-            if image_digest == cover_digest:
-                matches.append({
+            distance = (cover_hash ^ perceptual_hash).bit_count()
+            if distance <= 5 and key not in exact_keys:
+                near_matches.append({
                     "page_number": page_number,
                     "image_index": image.image_index,
+                    "hamming_distance": distance,
                 })
 
     result["status"] = "complete" if complete else "incomplete"
-    result["matches"] = matches
-    result["duplicate_count"] = len(matches)
+    result["matches"] = exact_matches
+    result["duplicate_count"] = len(exact_matches)
+    result["near_matches"] = near_matches
+    result["near_duplicate_count"] = len(near_matches)
     return result
 
 def build_quality_report(
@@ -372,6 +427,12 @@ def build_quality_report(
     image_stats["duplicate_cover_detection"] = _duplicate_cover_statistics(
         workspace, total_pages, content_classifications
     )
+    image_stats["optimized_image_count"] = 0
+    image_stats["optimization_saved_bytes"] = 0
+    image_stats["optimization_method"] = (
+        "jpeg_quality_85_optimize_progressive_png_lossless_optimize"
+    )
+    document_language = workspace.load_document_language_analysis()
     text_fidelity_stats = summarize_text_fidelity(text_fidelity_pages)
     source_path = Path(job.input_path)
     source_size = source_path.stat().st_size if source_path.is_file() else None
@@ -389,6 +450,34 @@ def build_quality_report(
                 image_stats["embedded_bytes"] = sum(
                     archive.getinfo(name).file_size for name in embedded_assets
                 )
+                optimized_count = 0
+                saved_bytes = 0
+                for page_number in range(1, total_pages + 1):
+                    checkpoint = workspace.load_page_images(page_number)
+                    if checkpoint is None:
+                        continue
+                    for image in checkpoint.images:
+                        archive_name = "OEBPS/" + image.source_path
+                        if archive_name not in embedded_assets:
+                            continue
+                        source_asset = workspace.root / image.source_path
+                        try:
+                            resolved_asset = source_asset.resolve(strict=True)
+                            if (
+                                not resolved_asset.is_relative_to(workspace.root.resolve())
+                                or source_asset.is_symlink()
+                                or not resolved_asset.is_file()
+                            ):
+                                continue
+                            source_size = resolved_asset.stat().st_size
+                            embedded_size = archive.getinfo(archive_name).file_size
+                        except (OSError, RuntimeError):
+                            continue
+                        if embedded_size < source_size:
+                            optimized_count += 1
+                            saved_bytes += source_size - embedded_size
+                image_stats["optimized_image_count"] = optimized_count
+                image_stats["optimization_saved_bytes"] = saved_bytes
                 image_stats["status"] = (
                     "embedded" if embedded_assets else
                     "not_yet_embedded" if image_stats["extracted_count"] else
@@ -426,7 +515,7 @@ def build_quality_report(
         "generated_at": timestamp.astimezone(UTC).isoformat(),
         "generator": {
             "name": "inkslim",
-            "version": os.environ.get("INKSLIM_VERSION", "development"),
+            "version": os.environ.get("INKSLIM_VERSION", "0.1.0-dev").removeprefix("v"),
             "commit": os.environ.get("INKSLIM_COMMIT") or None,
         },
         "job": {
@@ -446,6 +535,15 @@ def build_quality_report(
             "chapter_count": structure["chapter_count"] if structure else 0,
         },
         "images": image_stats,
+        "duplicate_covers": image_stats["duplicate_cover_detection"],
+        "document_language": document_language or {
+            "schema_version": 1,
+            "method": "unavailable",
+            "language": None,
+            "evaluated_pages": 0,
+            "supporting_pages": 0,
+            "vote_share": None,
+        },
         "text_fidelity": text_fidelity_stats,
         "output": {
             "format": "epub",

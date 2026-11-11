@@ -78,6 +78,73 @@ def test_embeds_extracted_images_in_source_page_order_with_manifest_and_markup(t
         ]
 
 
+def test_jpeg_assets_are_reencoded_when_materially_smaller(tmp_path):
+    import io
+
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".jpg")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.effect_noise((800, 1200), 90).convert("RGB").save(
+        path, "JPEG", quality=100, subsampling=0
+    )
+    original_size = path.stat().st_size
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), 800, 1200,
+            "image/jpeg", relative_path, 0.64,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "compressed.epub",
+        EpubMetadata(title="JPEG optimization"),
+        [Chapter("Chapter 1", [Block("p", "Readable text.")])],
+    )
+
+    assert embed_pdf_images(epub, workspace, total_pages=1) == 1
+    with zipfile.ZipFile(epub) as archive:
+        optimized = archive.read("OEBPS/" + relative_path)
+    assert len(optimized) < original_size * 0.9
+    with Image.open(io.BytesIO(optimized)) as decoded:
+        assert decoded.format == "JPEG"
+        assert decoded.size == (800, 1200)
+
+
+def test_png_optimization_preserves_alpha(tmp_path):
+    import io
+
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    path = workspace.page_image_asset_prefix(1, 1).with_suffix(".png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGBA", (80, 60), (255, 0, 0, 100)).save(path, "PNG")
+    relative_path = path.relative_to(workspace.root).as_posix()
+    workspace.save_page_images(PageImages(
+        page_number=1,
+        images=(PageImage(
+            1, 1, (0.1, 0.1, 0.9, 0.9), 80, 60,
+            "image/png", relative_path, 0.64,
+        ),),
+        warnings=(),
+        detected_count=1,
+    ))
+    epub = build_epub(
+        tmp_path / "transparent.epub",
+        EpubMetadata(title="PNG alpha"),
+        [Chapter("Chapter 1", [Block("p", "Readable text.")])],
+    )
+    embed_pdf_images(epub, workspace, total_pages=1)
+    with zipfile.ZipFile(epub) as archive:
+        optimized = archive.read("OEBPS/" + relative_path)
+    with Image.open(io.BytesIO(optimized)) as decoded:
+        assert decoded.mode == "RGBA"
+        assert decoded.getpixel((0, 0))[3] == 100
+
+
 def test_no_images_leaves_epub_unchanged(tmp_path):
     workspace = JobWorkspace(tmp_path / "job")
     workspace.create()
@@ -107,6 +174,7 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
         load_structure_analysis=lambda: {},
         load_page_structure=lambda _page: [],
         save_document_model=lambda _doc: None,
+        save_document_language_analysis=lambda _analysis: None,
     )
     job = SimpleNamespace(
         id="12345678-1234-5678-1234-567812345678",
@@ -286,8 +354,8 @@ def test_places_image_between_paragraphs_on_its_source_page(tmp_path):
         assert before < figure < after
         assert b"<h2>Illustrations</h2>" not in chapter
         assert b"data-source-page=\"1\"" in chapter
-        assert b"<!-- inkslim-image-layout:3 -->\n</section>" in chapter
-        assert b"<!-- inkslim-image-layout:3 -->\\n</section>" not in chapter
+        assert b"<!-- inkslim-image-layout:4 -->\n</section>" in chapter
+        assert b"<!-- inkslim-image-layout:4 -->\\n</section>" not in chapter
         assert f"OEBPS/{relative_path}" in archive.namelist()
 
 

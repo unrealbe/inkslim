@@ -47,6 +47,8 @@ if not SCRIPT.is_file():
 AUTH_USER = os.environ.get("BASIC_AUTH_USER", "")
 AUTH_PASS = os.environ.get("BASIC_AUTH_PASS", "")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+APP_VERSION = os.environ.get("INKSLIM_VERSION", "0.1.0-dev").removeprefix("v")
+APP_COMMIT = os.environ.get("INKSLIM_COMMIT", "unknown")
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
 app.config["CONVERSION_MAX_PDF_PAGES"] = MAX_PDF_PAGES
@@ -419,6 +421,11 @@ def healthz():
     return "ok"
 
 
+@app.get("/api/version")
+def version():
+    return jsonify(version=APP_VERSION, commit=APP_COMMIT)
+
+
 @app.get("/")
 def index():
     return Response(INDEX_HTML, mimetype="text/html")
@@ -676,6 +683,22 @@ INDEX_HTML = """<!doctype html>
   .conversion-drop.over { background:var(--drop); border-color:var(--accent); }
   .conversion-drop strong { display:block; }
   .conversion-drop span { color:var(--muted); font-size:.9rem; }
+  #start-processing {
+    margin-top:12px; border:0; border-radius:8px; padding:10px 16px;
+    background:var(--accent); color:var(--accent-text); font:inherit;
+    font-weight:650; cursor:pointer;
+  }
+  #start-processing:disabled { opacity:.45; cursor:not-allowed; }
+  #clear-selected-files {
+    border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+    background:var(--bg); color:var(--text); font:inherit; font-size:.85rem;
+  }
+  .selected-file { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .selected-file button {
+    border:1px solid var(--line); border-radius:7px; padding:4px 8px;
+    background:var(--bg); color:var(--text); cursor:pointer;
+  }
+  .selected-file.invalid .meta { color:var(--err); }
   .job-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   button.job-button {
     border:1px solid var(--line); border-radius:8px; padding:7px 11px;
@@ -711,14 +734,14 @@ INDEX_HTML = """<!doctype html>
     <a class="sidebar-brand" href="#workspace"><img src="/static/inkslim-icon-192.png" alt=""><span>inkslim<small>BOOK WORKSPACE</small></span></a>
     <div class="sidebar-label">WORKSPACE</div>
     <nav class="sidebar-nav">
-      <a class="active" href="#drop"><span class="nav-icon">⌂</span> Overview</a>
-      <a href="#conversion-results"><span class="nav-icon">⇄</span> PDF to EPUB</a>
+      <a class="active" href="#workspace"><span class="nav-icon">⌂</span> Overview</a>
+      <a href="#operation-card"><span class="nav-icon">⇄</span> PDF to EPUB</a>
       <a href="#results"><span class="nav-icon">▤</span> Optimization history</a>
     </nav>
     <div class="sidebar-footer"><span class="status-dot"></span> Self-hosted and private</div>
   </aside>
   <div class="app-main">
-    <div class="topbar"><span>YOUR LIBRARY TOOLKIT</span><span class="topbar-status"><i></i> LOCAL PROCESSING</span></div>
+    <div class="topbar"><span>YOUR LIBRARY TOOLKIT</span><span class="topbar-status"><i></i> LOCAL PROCESSING <small id="app-version">v0.1.0-dev</small></span></div>
 <main id="workspace">
   <header class="page-heading">
     <div class="eyebrow">OVERVIEW</div>
@@ -726,29 +749,39 @@ INDEX_HTML = """<!doctype html>
     <p class="sub">Optimize your books or turn PDFs into reflowable EPUBs.</p>
   </header>
 
-  <div id="drop" class="card" tabindex="0" role="button" aria-label="Choose EPUB or PDF files">
-    <strong>Drop your EPUB or PDF files here</strong>
-    <span>or click to browse</span>
-    <input id="file" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" multiple hidden>
-  </div>
-
   <section class="card operation-card" id="operation-card">
     <label for="processing-action">Choose an operation</label>
     <select id="processing-action">
-      <option value="shrink">Make smaller — optimize PDF or EPUB</option>
-      <option value="convert">Convert PDF to EPUB — create a reflowable e-book</option>
+      <option value="shrink">Optimize PDF or EPUB</option>
+      <option value="convert">Convert PDF to EPUB</option>
     </select>
     <div id="conversion-options" hidden>
       <label for="conversion-language">OCR language</label>
       <select id="conversion-language">
         <option value="eng" selected>English (default)</option>
-        <option value="nld">Dutch</option><option value="fra">French</option>
-        <option value="deu">German</option><option value="nld+eng">Dutch + English</option>
-        <option value="fra+eng">French + English</option>
+        <option value="nld">Dutch</option>
+        <option value="fra">French</option>
+        <option value="deu">German</option>
       </select>
-      <p class="hint">Scanned pages are processed with the selected OCR language. Extracted illustrations are preserved in the EPUB.</p>
+      <p class="hint">One OCR language is used per book. The EPUB document language is inferred separately from reconstructed text.</p>
     </div>
     <p class="hint" id="action-hint">PDF and EPUB files are optimized while preserving their original format.</p>
+  </section>
+
+  <div id="drop" class="card" tabindex="0" role="button" aria-label="Choose files for the selected operation">
+    <strong>Select or drop files</strong>
+    <span>Files are queued locally. Nothing starts until you press Start processing.</span>
+    <input id="file" type="file" accept=".epub,.pdf,application/epub+zip,application/pdf" multiple hidden>
+  </div>
+
+  <section class="card" id="selection-panel" hidden>
+    <div class="history-header">
+      <span>Selected files</span>
+      <button id="clear-selected-files" type="button">Clear selection</button>
+    </div>
+    <ul id="selected-files"></ul>
+    <button id="start-processing" type="button" disabled>Start processing</button>
+    <p class="hint" id="selection-hint">Review your files before starting.</p>
   </section>
 
   <details class="card settings-panel" id="epub-settings" open>
@@ -816,11 +849,12 @@ INDEX_HTML = """<!doctype html>
 
   <p class="hint">Your original files are never modified. Optimization uploads are deleted after processing. PDF-to-EPUB jobs, including original PDFs, checkpoints and results, are stored locally on your server while processing and retained for 24 hours after completion by default.</p>
 
-  <div class="card" id="results" hidden>
+  <div class="card" id="results">
     <div class="history-header">
       <span>History</span>
       <button id="clear-history" type="button" disabled>Clear history</button>
     </div>
+    <p class="meta" id="empty-history">No optimization history yet.</p>
     <ul id="list"></ul>
   </div>
 </main>
@@ -841,6 +875,12 @@ const conversionOptions = $("conversion-options");
 const actionHint = $("action-hint");
 const conversionResults = $("conversion-results");
 const clearConversionHistoryButton = $("clear-conversion-history");
+const selectionPanel = $("selection-panel");
+const selectedFilesList = $("selected-files");
+const startProcessingButton = $("start-processing");
+const clearSelectedFilesButton = $("clear-selected-files");
+const selectionHint = $("selection-hint");
+const pendingFiles = [];
 const CONVERSION_HISTORY_KEY = "inkslim.conversion-jobs.v1";
 const SETTINGS_KEY = "inkslim.preferences.v1";
 
@@ -947,6 +987,33 @@ fileInput.addEventListener("change",() => {
   fileInput.value = "";
 });
 
+const navLinks = [...document.querySelectorAll(".sidebar-nav a")];
+function setActiveNavigation(hash) {
+  for (const link of navLinks) {
+    link.classList.toggle("active", link.getAttribute("href") === hash);
+  }
+}
+navLinks.forEach(link => link.addEventListener("click",() => {
+  const target = link.getAttribute("href");
+  if (target === "#operation-card") {
+    processingAction.value = "convert";
+    updateProcessingAction();
+    renderPendingFiles();
+  }
+  setActiveNavigation(target);
+}));
+window.addEventListener("hashchange",() => setActiveNavigation(location.hash || "#workspace"));
+setActiveNavigation(location.hash || "#workspace");
+
+fetch("/api/version",{cache:"no-store"}).then(response => {
+  if (!response.ok) throw new Error("Version unavailable");
+  return response.json();
+}).then(info => {
+  const versionLabel = $("app-version");
+  if (versionLabel) versionLabel.textContent = "v" + info.version +
+    (info.commit && info.commit !== "unknown" ? " · " + info.commit.slice(0,7) : "");
+}).catch(() => {});
+
 function savedConversionJobs() {
   try {
     const value = JSON.parse(localStorage.getItem(CONVERSION_HISTORY_KEY) || "[]");
@@ -957,7 +1024,7 @@ function saveConversionJobs(jobs) {
   try { localStorage.setItem(CONVERSION_HISTORY_KEY,JSON.stringify(jobs.slice(-20))); }
   catch (error) { console.warn("Could not save conversion history:",error); }
 }
-function conversionItem(id,name) {
+function conversionItem(id,name,initialMessage="Loading job status...") {
   const item = document.createElement("li");
   item.dataset.jobId = id || "";
   const title = document.createElement("div");
@@ -968,7 +1035,7 @@ function conversionItem(id,name) {
   identity.textContent = id ? "Job " + id.slice(0,8) : "Creating job...";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = "Submitting...";
+  meta.textContent = initialMessage;
   const progress = document.createElement("progress");
   progress.max = 100;
   progress.removeAttribute("value");
@@ -1111,6 +1178,13 @@ function showQualityReport(url) {
               ? "Image detection or extraction was incomplete; some source images may be missing."
               : "Image extraction status unavailable.";
     panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
+    if (Number(imageStats.optimized_image_count) > 0) {
+      const optimization = document.createElement("p");
+      optimization.className = "meta";
+      optimization.textContent = "Optimized " + imageStats.optimized_image_count +
+        " images · Saved " + fmt(imageStats.optimization_saved_bytes || 0);
+      panel.appendChild(optimization);
+    }
     if (imageStats.detection_complete === false) {
       const imageNote = document.createElement("p");
       imageNote.className = "meta";
@@ -1166,6 +1240,23 @@ function renderConversionJob(item,job) {
   }
   if (status === "completed") {
     progress.value = progress.max;
+    const files = job.files || {};
+    const inputSize = Number(files.input_size_bytes);
+    const outputSize = Number(files.output_size_bytes);
+    if (Number.isFinite(inputSize) && Number.isFinite(outputSize)) {
+      const difference = outputSize - inputSize;
+      const sizeChange = difference < 0
+        ? " · " + fmt(Math.abs(difference)) + " smaller"
+        : difference > 0 ? " · " + fmt(difference) + " larger" : " · same size";
+      const pageSummary = Number(details.total_pages) > 0
+        ? " · " + (details.completed_pages || 0) + "/" + details.total_pages + " pages" : "";
+      conversionMeta(item,"completed" + pageSummary + " · " +
+        String(files.input_format || "pdf").toUpperCase() + " " + fmt(inputSize) +
+        " → " + String(files.output_format || "epub").toUpperCase() + " " +
+        fmt(outputSize) + sizeChange);
+    } else {
+      conversionMeta(item,"completed · PDF → EPUB");
+    }
     conversionAction(item,"Download EPUB",job.links.download);
     const reportButton = document.createElement("button");
     reportButton.type = "button"; reportButton.className = "job-button";
@@ -1221,7 +1312,7 @@ async function refreshConversion(item) {
   }
 }
 async function submitConversion(file) {
-  const item = conversionItem("",file.name);
+  const item = conversionItem("",file.name,"Submitting...");
   const form = new FormData();
   form.append("file",file);
   form.append("language",$("conversion-language").value);
@@ -1246,10 +1337,13 @@ function updateProcessingAction() {
   $("epub-settings").hidden = convert;
   $("pdf-settings").hidden = convert;
   actionHint.textContent = convert
-    ? "PDF files are converted to reflowable EPUBs. EPUB uploads are not accepted in this mode."
+    ? "PDF files are converted to reflowable EPUBs. Choose one OCR language per book."
     : "PDF and EPUB files are optimized while preserving their original format.";
 }
-processingAction.addEventListener("change",updateProcessingAction);
+processingAction.addEventListener("change",() => {
+  updateProcessingAction();
+  renderPendingFiles();
+});
 updateProcessingAction();
 async function loadConversionHistory() {
   try {
@@ -1307,6 +1401,33 @@ function outName(name) {
 const queue = [];
 let busy = false;
 
+async function startSelectedFiles() {
+  if (startProcessingButton.disabled) return;
+  const files = pendingFiles.slice();
+  pendingFiles.length = 0;
+  renderPendingFiles();
+  if (processingAction.value === "convert") {
+    for (const file of files) await submitConversion(file);
+    return;
+  }
+  for (const file of files) {
+    const item = document.createElement("li");
+    item.dataset.state = "queued";
+    item.innerHTML = '<div class="name"></div><div class="meta"></div>';
+    item.querySelector(".name").textContent = file.name;
+    list.appendChild(item);
+    queue.push({file,li:item,settings:settingsForFile(file)});
+    setMeta(item,"Queued... (" + fmt(file.size) + ")",false,"queued");
+  }
+  updateHistory();
+  next();
+}
+startProcessingButton.addEventListener("click",startSelectedFiles);
+clearSelectedFilesButton.addEventListener("click",() => {
+  pendingFiles.length = 0;
+  renderPendingFiles();
+});
+
 function settingsForFile(file) {
   if (file.name.toLowerCase().endsWith(".pdf")) {
     return {
@@ -1328,7 +1449,8 @@ function settingsForFile(file) {
   };
 }
 function updateHistory() {
-  results.hidden = list.children.length === 0;
+  results.hidden = false;
+  $("empty-history").hidden = list.children.length > 0;
   clearButton.disabled = !list.querySelector('li[data-state="done"], li[data-state="error"]');
 }
 function clearHistory() {
@@ -1342,32 +1464,52 @@ function clearHistory() {
 }
 clearButton.addEventListener("click",clearHistory);
 
+function renderPendingFiles() {
+  selectedFilesList.replaceChildren();
+  let hasInvalid = false;
+  pendingFiles.forEach((file,index) => {
+    const name = file.name.toLowerCase();
+    const supported = name.endsWith(".pdf") || name.endsWith(".epub");
+    const compatible = supported &&
+      (processingAction.value !== "convert" || name.endsWith(".pdf"));
+    hasInvalid ||= !compatible;
+    const item = document.createElement("li");
+    item.className = "selected-file" + (compatible ? "" : " invalid");
+    const details = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "name";
+    title.textContent = file.name;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = fmt(file.size) + (compatible ? "" :
+      (supported ? " · PDF-to-EPUB accepts PDF files only" : " · Unsupported file type"));
+    details.append(title,meta);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label","Remove " + file.name);
+    remove.addEventListener("click",() => {
+      pendingFiles.splice(index,1);
+      renderPendingFiles();
+    });
+    item.append(details,remove);
+    selectedFilesList.appendChild(item);
+  });
+  selectionPanel.hidden = pendingFiles.length === 0;
+  startProcessingButton.disabled = pendingFiles.length === 0 || hasInvalid;
+  selectionHint.textContent = hasInvalid
+    ? "Remove unsupported files or choose the matching operation before starting."
+    : (processingAction.value === "convert"
+      ? "Ready to create reflowable EPUBs. OCR starts only after you press Start processing."
+      : "Ready to optimize the selected files. Processing starts only after you press Start processing.");
+}
 function addFiles(files) {
   for (const file of files) {
     const name = file.name.toLowerCase();
     if (!name.endsWith(".epub") && !name.endsWith(".pdf")) continue;
-    if (processingAction.value === "convert") {
-      if (name.endsWith(".pdf")) submitConversion(file);
-      else {
-        const item = document.createElement("li");
-        item.dataset.state = "error";
-        item.innerHTML = '<div class="name"></div><div class="meta"></div>';
-        item.querySelector(".name").textContent = file.name;
-        list.appendChild(item);
-        setMeta(item,"PDF-to-EPUB mode only accepts PDF files.",true,"error");
-      }
-      continue;
-    }
-    const item = document.createElement("li");
-    item.dataset.state = "queued";
-    item.innerHTML = '<div class="name"></div><div class="meta"></div>';
-    item.querySelector(".name").textContent = file.name;
-    list.appendChild(item);
-    queue.push({file,li:item,settings:settingsForFile(file)});
-    setMeta(item,"Queued... (" + fmt(file.size) + ")",false,"queued");
+    pendingFiles.push(file);
   }
-  updateHistory();
-  next();
+  renderPendingFiles();
 }
 function setMeta(item,message,isError,state) {
   const meta = item.querySelector(".meta");
