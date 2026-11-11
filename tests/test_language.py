@@ -8,20 +8,20 @@ from conversion.language import (
 )
 
 @pytest.mark.parametrize(("selection", "expected"), [
-    ("nld", ["nld"]), ("eng", ["eng"]), ("nld+eng", ["nld", "eng"]),
-    ("fra", ["fra"]), ("deu", ["deu"]), ("fra+eng", ["fra", "eng"]),
+    ("nld", ["nld"]), ("eng", ["eng"]),
+    ("fra", ["fra"]), ("deu", ["deu"]),
 ])
 def test_explicit_language_selection(selection, expected):
     assert ocr_languages_for_selection(selection) == expected
 
 @pytest.mark.parametrize(("selection", "expected_epub"), [
-    ("nld", "nl"), ("eng", "en"), ("nld+eng", "nl"),
-    ("fra", "fr"), ("deu", "de"), ("fra+eng", "fr"),
+    ("nld", "nl"), ("eng", "en"),
+    ("fra", "fr"), ("deu", "de"),
 ])
 def test_epub_language_for_selection(selection, expected_epub):
     assert epub_language_for_selection(selection) == expected_epub
 
-@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "auto", "auto+eng"])
+@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "nld+eng", "fra+eng", "auto", "auto+eng"])
 def test_rejects_unsupported_language_selection(selection):
     with pytest.raises(ValueError):
         normalize_language_selection(selection)
@@ -57,7 +57,7 @@ def _french_page():
 def test_document_language_uses_reconstructed_text_not_ocr_selection():
     selected, diagnostics = infer_document_language(
         {1: _english_page(), 2: _english_page()},
-        fallback_selection="nld+eng",
+        fallback_selection="eng",
     )
     assert selected == "en"
     assert diagnostics["method"] == "weighted_reconstructed_page_language"
@@ -67,7 +67,7 @@ def test_document_language_uses_reconstructed_text_not_ocr_selection():
 def test_document_language_falls_back_when_pages_are_too_short():
     selected, diagnostics = infer_document_language(
         {1: "Title", 2: "Advertisement"},
-        fallback_selection="fra+eng",
+        fallback_selection="fra",
     )
     assert selected == "fr"
     assert diagnostics["method"] == "fallback_to_ocr_selection"
@@ -98,6 +98,6 @@ def test_short_title_and_advert_pages_do_not_outvote_body_text():
     assert diagnostics["evaluated_pages"] == 2
 
 
-def test_document_language_inference_does_not_change_ocr_language_selection():
-    assert ocr_languages_for_selection("nld+eng") == ["nld", "eng"]
-    assert ocr_languages_for_selection("fra+eng") == ["fra", "eng"]
+def test_document_language_inference_keeps_explicit_single_ocr_language():
+    assert ocr_languages_for_selection("eng") == ["eng"]
+    assert ocr_languages_for_selection("nld") == ["nld"]
