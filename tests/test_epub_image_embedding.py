@@ -440,6 +440,7 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         assert cover.find("x:img", NS).get("src") == cover_path
         chapter_bytes = archive.read("OEBPS/chapter_0001.xhtml")
         assert chapter_bytes.index(b'class="pdf-cover"') < chapter_bytes.index(b"<h1>")
+        assert len(chapter.findall(".//x:figure", NS)) == 1
         assert chapter.find(".//x:p", NS).text == "Book text."
         assert f"OEBPS/{cover_path}" in archive.namelist()
 
