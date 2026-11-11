@@ -110,7 +110,7 @@ def test_quality_report_renderer_displays_structure_warning_as_user_facing_text(
         },
         "output": {},
     }
-    renderer = match.group(0).rsplit("\\nfunction renderConversionJob", 1)[0]
+    renderer = match.group(0).split("\\nfunction renderConversionJob", 1)[0]
     script = f"""
 class Element {{
   constructor(tag) {{ this.tag = tag; this.children = []; this.style = {{}}; this._text = ""; }}
