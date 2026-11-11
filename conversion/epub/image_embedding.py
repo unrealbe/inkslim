@@ -435,14 +435,14 @@ def embed_pdf_images(
                         if cover_asset is not None:
                             cover_markup = b"\n" + _figure_markup(cover_asset[0], cover=True)
                             chapter_bytes, count = re.subn(
-                                rb"(</h1>)",
+                                rb"(<section\\b[^>]*>)",
                                 lambda match: match.group(1) + cover_markup,
                                 chapter_bytes,
                                 count=1,
                             )
                             if count != 1:
                                 raise EpubImageEmbeddingError(
-                                    "Could not place the cover in the first EPUB chapter"
+                                    "Could not place the cover at the start of the first EPUB chapter"
                                 )
                         if _XHTML_END not in chapter_bytes:
                             raise EpubImageEmbeddingError(
