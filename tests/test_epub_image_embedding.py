@@ -438,8 +438,10 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         cover = chapter.find(".//x:figure[@class='pdf-cover']", NS)
         assert cover is not None
         assert cover.find("x:img", NS).get("src") == cover_path
-        chapter_bytes = archive.read("OEBPS/chapter_0001.xhtml")
-        assert chapter_bytes.index(b'class="pdf-cover"') < chapter_bytes.index(b"<h1>")
+        section = chapter.find(".//x:section", NS)
+        first_heading = section.find("x:h1", NS)
+        assert section is not None and first_heading is not None
+        assert list(section).index(cover) < list(section).index(first_heading)
         assert len(chapter.findall(".//x:figure", NS)) == 1
         assert chapter.find(".//x:p", NS).text == "Book text."
         assert f"OEBPS/{cover_path}" in archive.namelist()
@@ -538,3 +540,25 @@ def test_large_page_images_are_inserted_before_text_on_their_source_pages(tmp_pa
         assert page_two_figure < page_two_text < page_three_figure < page_three_text
         assert b"Promotional material" not in chapter
         assert b"Illustrations" not in chapter
+
+
+
+def test_page_image_without_text_anchor_on_its_page_stays_in_appendix(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    page_two_path = _save_image(workspace, 2, 1, "blue")
+    epub = build_epub(
+        tmp_path / "unanchored-page-image.epub",
+        EpubMetadata(title="Unanchored page image"),
+        [Chapter("Chapter 1", [
+            Block("p", "Page three text.", 3, 1, (0.1, 0.1, 0.9, 0.2)),
+        ])],
+    )
+
+    assert embed_pdf_images(epub, workspace, total_pages=3) == 1
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        assert b"Page three text." in chapter
+        assert chapter.index(b"Page three text.") < chapter.index(b"<h2>Illustrations</h2>")
+        assert page_two_path.encode("utf-8") in chapter
