@@ -5,6 +5,7 @@ never changes text order and never guesses across overlapping text/image regions
 """
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -81,13 +82,49 @@ def _load_assets(
     return assets
 
 
+def _optimized_image_bytes(asset_path: Path, media_type: str) -> bytes:
+    """Re-encode extracted images conservatively before embedding them in the EPUB."""
+    original = asset_path.read_bytes()
+    output = io.BytesIO()
+    try:
+        with Image.open(asset_path) as decoded:
+            decoded.load()
+            if media_type == "image/jpeg":
+                # Keep grayscale assets grayscale; normalize other JPEG modes to RGB.
+                prepared = decoded.copy() if decoded.mode == "L" else decoded.convert("RGB")
+                try:
+                    prepared.save(
+                        output,
+                        format="JPEG",
+                        quality=85,
+                        optimize=True,
+                        progressive=True,
+                        icc_profile=decoded.info.get("icc_profile"),
+                    )
+                finally:
+                    prepared.close()
+            elif media_type == "image/png":
+                # PNG remains lossless and retains alpha/transparency.
+                decoded.save(output, format="PNG", optimize=True)
+            else:
+                return original
+    except (OSError, ValueError):
+        # The asset was already validated by _load_assets. If a codec still cannot
+        # re-encode it, preserve the original bytes rather than failing the book.
+        return original
+
+    optimized = output.getvalue()
+    # Avoid generation loss when a lossy JPEG re-encode does not materially shrink it.
+    return optimized if len(optimized) <= len(original) * 0.9 else original
+
+
 def has_current_image_layout(epub_path: Path | str) -> bool:
     """Return whether an EPUB was built with the source-anchor image layout."""
     try:
         with zipfile.ZipFile(epub_path, "r") as archive:
             return any(
                 name.startswith("OEBPS/chapter_") and name.endswith(".xhtml")
-                and b"inkslim-image-layout:3" in archive.read(name)
+                and b"inkslim-image-layout:4" in archive.read(name)
                 for name in archive.namelist()
             )
     except (OSError, zipfile.BadZipFile, KeyError):
@@ -376,7 +413,7 @@ def embed_pdf_images(
                             )
                         chapter_bytes = chapter_bytes.replace(
                             _XHTML_END,
-                            b"<!-- inkslim-image-layout:3 -->\n</section>",
+                            b"<!-- inkslim-image-layout:4 -->\n</section>",
                             1,
                         )
 
@@ -414,12 +451,11 @@ def embed_pdf_images(
                     )
 
                 for image, asset_path in assets:
-                    with asset_path.open("rb") as image_stream, target.open(
+                    optimized_bytes = _optimized_image_bytes(asset_path, image.media_type)
+                    with target.open(
                         "OEBPS/" + image.source_path, "w", force_zip64=True
                     ) as archive_stream:
-                        shutil.copyfileobj(
-                            image_stream, archive_stream, length=1024 * 1024
-                        )
+                        archive_stream.write(optimized_bytes)
 
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
