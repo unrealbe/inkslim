@@ -75,13 +75,13 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
                 continue
             if paragraph.kind in {"h1", "h2", "h3"}:
                 normalized = unicodedata.normalize("NFKC", text).casefold()
-                normalized = re.sub(r"[^\\w]+", " ", normalized, flags=re.UNICODE).strip()
+                normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
                 if len(normalized) >= 4:
                     heading_occurrences.setdefault(normalized, []).append(page)
             elif (
                 paragraph.kind == "p"
                 and page is not None
-                and re.fullmatch(r"\\d{1,4}", text)
+                and re.fullmatch(r"\d{1,4}", text)
                 and 1 <= int(text) <= total_pages
                 and int(text) in {page, page - 1}
             ):
