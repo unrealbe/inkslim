@@ -99,7 +99,10 @@ def _optimized_image_bytes(asset_path: Path, media_type: str) -> bytes:
                         quality=85,
                         optimize=True,
                         progressive=True,
-                        icc_profile=decoded.info.get("icc_profile"),
+                        icc_profile=(
+                            decoded.info.get("icc_profile")
+                            if decoded.mode == "RGB" else None
+                        ),
                     )
                 finally:
                     prepared.close()
