@@ -435,7 +435,10 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         assert len(cover_items) == 1
         assert cover_items[0].get("href") == cover_path
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
-        assert not chapter.findall(".//x:figure", NS)
+        cover = chapter.find(".//x:figure[@class='pdf-cover']", NS)
+        assert cover is not None
+        assert cover.find("x:img", NS).get("src") == cover_path
+        assert chapter.find(".//x:p", NS).text == "Book text."
         assert f"OEBPS/{cover_path}" in archive.namelist()
 
 
@@ -463,9 +466,9 @@ def test_advert_candidate_images_are_preserved_in_separate_appendix(tmp_path):
 
     with zipfile.ZipFile(epub) as archive:
         chapter = archive.read("OEBPS/chapter_0001.xhtml")
-        assert b"Promotional material" in chapter
+        assert b"Promotional material" not in chapter
         assert b"Illustrations" not in chapter
-        assert chapter.index(b"Text after.") < chapter.index(b"Promotional material")
+        assert chapter.index(advert_path.encode("utf-8")) < chapter.index(b"Text before.")
         assert advert_path.encode("utf-8") in chapter
         assert f"OEBPS/{advert_path}" in archive.namelist()
 
@@ -497,3 +500,38 @@ def test_low_confidence_cover_candidate_is_not_promoted_or_removed(tmp_path):
         chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
         assert len(chapter.findall(".//x:figure", NS)) == 1
         assert f"OEBPS/{cover_path}" in archive.namelist()
+
+
+def test_large_page_images_are_inserted_before_text_on_their_source_pages(tmp_path):
+    workspace = JobWorkspace(tmp_path / "job")
+    workspace.create()
+    page_two_path = _save_image(workspace, 2, 1, "blue")
+    page_three_path = _save_image(workspace, 3, 1, "green")
+    epub = build_epub(
+        tmp_path / "full-page-images.epub",
+        EpubMetadata(title="Source page order"),
+        [Chapter("Chapter 1", [
+            Block("p", "Page two text.", 2, 1, (0.1, 0.1, 0.9, 0.2)),
+            Block("p", "Page three text.", 3, 1, (0.1, 0.1, 0.9, 0.2)),
+        ])],
+    )
+
+    assert embed_pdf_images(
+        epub,
+        workspace,
+        total_pages=3,
+        page_classifications={
+            2: {"type": "advert_candidate", "confidence": 0.68},
+            3: {"type": "advert_candidate", "confidence": 0.68},
+        },
+    ) == 2
+
+    with zipfile.ZipFile(epub) as archive:
+        chapter = archive.read("OEBPS/chapter_0001.xhtml")
+        page_two_figure = chapter.index(page_two_path.encode("utf-8"))
+        page_two_text = chapter.index(b"Page two text.")
+        page_three_figure = chapter.index(page_three_path.encode("utf-8"))
+        page_three_text = chapter.index(b"Page three text.")
+        assert page_two_figure < page_two_text < page_three_figure < page_three_text
+        assert b"Promotional material" not in chapter
+        assert b"Illustrations" not in chapter
