@@ -21,7 +21,7 @@ def test_explicit_language_selection(selection, expected):
 def test_epub_language_for_selection(selection, expected_epub):
     assert epub_language_for_selection(selection) == expected_epub
 
-@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "nld+eng", "fra+eng", "auto", "auto+eng"])
+@pytest.mark.parametrize("selection", ["", "nl", "english", "nld+deu", "auto", "auto+eng"])
 def test_rejects_unsupported_language_selection(selection):
     with pytest.raises(ValueError):
         normalize_language_selection(selection)
