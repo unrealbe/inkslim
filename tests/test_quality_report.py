@@ -59,7 +59,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     source = tmp_path / "book.pdf"
     source.write_bytes(b"%PDF-placeholder")
     store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
-    job = store.create_job(source, source.name, language="nld+eng")
+    job = store.create_job(source, source.name, language="nld")
     workspace = store.workspace(job.id)
 
     workspace.save_page_analysis(_analysis(1, PageDecision.USE_NATIVE))
@@ -87,14 +87,14 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "development"
     assert report["generator"]["commit"] is None
     assert report["job"]["id"] == job.id
     assert report["job"]["total_pages"] == 3
-    assert report["job"]["language_selection"] == "nld+eng"
+    assert report["job"]["language_selection"] == "nld"
     assert report["job"]["ocr_languages"] == ["nld", "eng"]
     assert report["document_language"]["language"] == "en"
     assert report["document_language"]["supporting_pages"] == 29
