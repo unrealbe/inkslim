@@ -320,9 +320,10 @@ def test_quality_report_records_epub_image_optimization_savings(tmp_path):
     ))
 
     optimized = BytesIO()
-    Image.effect_noise((600, 800), 90).convert("RGB").save(
-        optimized, "JPEG", quality=85, optimize=True, progressive=True
-    )
+    with Image.open(asset) as original_image:
+        original_image.save(
+            optimized, "JPEG", quality=85, optimize=True, progressive=True
+        )
     optimized_bytes = optimized.getvalue()
     epub = tmp_path / "optimized.epub"
     with zipfile.ZipFile(epub, "w") as archive:
