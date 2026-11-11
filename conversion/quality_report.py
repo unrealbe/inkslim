@@ -65,17 +65,20 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
     page_number_candidates: set[int] = set()
     source_pages: list[int] = []
 
+    def normalize_heading(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value).casefold()
+        return re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
+
     for chapter in model.chapters:
-        chapter_headings: set[str] = set()
         chapter_page = next(
             (paragraph.source_page for paragraph in chapter.paragraphs
              if paragraph.source_page is not None),
             None,
         )
-        chapter_title = unicodedata.normalize("NFKC", chapter.title).casefold()
-        chapter_title = re.sub(r"[^\w]+", " ", chapter_title, flags=re.UNICODE).strip()
+        chapter_title = normalize_heading(chapter.title)
         if len(chapter_title) >= 4:
-            chapter_headings.add(chapter_title)
+            heading_occurrences.setdefault(chapter_title, []).append(chapter_page)
+        title_heading_consumed = False
 
         for paragraph in chapter.paragraphs:
             page = paragraph.source_page
@@ -85,10 +88,14 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
             if not text:
                 continue
             if paragraph.kind in {"h1", "h2", "h3"}:
-                normalized = unicodedata.normalize("NFKC", text).casefold()
-                normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
+                normalized = normalize_heading(text)
                 if len(normalized) >= 4:
-                    chapter_headings.add(normalized)
+                    # A chapter title is represented once: do not double-count its
+                    # matching first in-document heading, but retain later repeats.
+                    if normalized == chapter_title and not title_heading_consumed:
+                        title_heading_consumed = True
+                    else:
+                        heading_occurrences.setdefault(normalized, []).append(page)
             elif (
                 paragraph.kind == "p"
                 and page is not None
@@ -97,9 +104,6 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
                 and int(text) in {page, page - 1}
             ):
                 page_number_candidates.add(page)
-
-        for heading in chapter_headings:
-            heading_occurrences.setdefault(heading, []).append(chapter_page)
 
     transitions = [
         {"from_page": previous, "to_page": current}
@@ -115,7 +119,8 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
         if len(pages) > 1
     ]
     duplicate_headings.sort(key=lambda item: (-item["occurrence_count"], item["page_numbers"]))
-    duplicate_headings = duplicate_headings[:100]
+    duplicate_heading_count = len(duplicate_headings)
+    duplicate_heading_occurrences = duplicate_headings[:100]
 
     warnings: list[dict[str, Any]] = []
     if transitions:
@@ -125,12 +130,12 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
             "affected_transition_count": len(transitions),
             "transitions": transitions[:100],
         })
-    if duplicate_headings:
+    if duplicate_heading_count:
         warnings.append({
             "code": "POSSIBLE_DUPLICATE_HEADINGS",
             "message": "Identical heading text occurs more than once; review whether repeated headings are intentional.",
-            "affected_heading_count": len(duplicate_headings),
-            "occurrences": duplicate_headings,
+            "affected_heading_count": duplicate_heading_count,
+            "occurrences": duplicate_heading_occurrences,
         })
     if page_number_candidates:
         warnings.append({
@@ -148,7 +153,7 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
             "page_transitions": transitions[:100],
         },
         "duplicate_headings": {
-            "count": len(duplicate_headings),
+            "count": duplicate_heading_count,
             "occurrences": duplicate_headings,
         },
         "possible_page_number_artifacts": {
