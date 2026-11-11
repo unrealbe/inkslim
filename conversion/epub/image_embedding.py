@@ -127,7 +127,7 @@ def has_current_image_layout(epub_path: Path | str) -> bool:
         with zipfile.ZipFile(epub_path, "r") as archive:
             return any(
                 name.startswith("OEBPS/chapter_") and name.endswith(".xhtml")
-                and b"inkslim-image-layout:4" in archive.read(name)
+                and b"inkslim-image-layout:5" in archive.read(name)
                 for name in archive.namelist()
             )
     except (OSError, zipfile.BadZipFile, KeyError):
@@ -321,8 +321,8 @@ def embed_pdf_images(
             css_data = None
             if css_info is not None:
                 css_data = source.read(css_info) + (
-                    b"\n.pdf-illustration { margin: 1.5em 0; text-align: center; }"
-                    b"\n.pdf-illustration img { max-width: 100%; height: auto; }"
+                    b"\n.pdf-illustration, .pdf-cover { margin: 1.5em 0; text-align: center; }"
+                    b"\n.pdf-illustration img, .pdf-cover img { max-width: 100%; height: auto; }"
                     b"\n.pdf-illustration figcaption { font-size: 0.85em; text-align: center; }\n"
                 )
 
