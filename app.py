@@ -1185,7 +1185,15 @@ function showQualityReport(url) {
     const duplicateSummary = document.createElement("p");
     duplicateSummary.className = "meta";
     const coverCandidate = duplicateCovers.cover_candidate || {};
-    if (duplicateCovers.status === "complete" || duplicateCovers.status === "incomplete") {
+    const firstPageCheckpointIncomplete = duplicateCovers.status === "incomplete" &&
+      !coverCandidate.page_number &&
+      Array.isArray(duplicateCovers.warnings) &&
+      duplicateCovers.warnings.includes("FIRST_PAGE_IMAGE_CHECKPOINT_INCOMPLETE");
+    if (firstPageCheckpointIncomplete) {
+      duplicateSummary.textContent =
+        "First-page image checkpoint incomplete; duplicate detection was not run and no match counts are available.";
+      panel.append(duplicateTitle,duplicateSummary);
+    } else if (duplicateCovers.status === "complete" || duplicateCovers.status === "incomplete") {
       duplicateSummary.textContent =
         (duplicateCovers.duplicate_count || 0) + " exact duplicate(s) · " +
         (duplicateCovers.near_duplicate_count || 0) + " possible visual match(es)" +
