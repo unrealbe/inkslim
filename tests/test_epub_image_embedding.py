@@ -439,8 +439,9 @@ def test_confident_cover_is_marked_in_opf_and_not_repeated_as_illustration(tmp_p
         assert cover is not None
         assert cover.find("x:img", NS).get("src") == cover_path
         section = chapter.find(".//x:section", NS)
+        assert section is not None
         first_heading = section.find("x:h1", NS)
-        assert section is not None and first_heading is not None
+        assert first_heading is not None
         assert list(section).index(cover) < list(section).index(first_heading)
         assert len(chapter.findall(".//x:figure", NS)) == 1
         assert chapter.find(".//x:p", NS).text == "Book text."
