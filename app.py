@@ -734,8 +734,8 @@ INDEX_HTML = """<!doctype html>
     <a class="sidebar-brand" href="#workspace"><img src="/static/inkslim-icon-192.png" alt=""><span>inkslim<small>BOOK WORKSPACE</small></span></a>
     <div class="sidebar-label">WORKSPACE</div>
     <nav class="sidebar-nav">
-      <a class="active" href="#drop"><span class="nav-icon">⌂</span> Overview</a>
-      <a href="#conversion-results"><span class="nav-icon">⇄</span> PDF to EPUB</a>
+      <a class="active" href="#workspace"><span class="nav-icon">⌂</span> Overview</a>
+      <a href="#operation-card"><span class="nav-icon">⇄</span> PDF to EPUB</a>
       <a href="#results"><span class="nav-icon">▤</span> Optimization history</a>
     </nav>
     <div class="sidebar-footer"><span class="status-dot"></span> Self-hosted and private</div>
