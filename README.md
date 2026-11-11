@@ -186,8 +186,9 @@ Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scann
 | Language | OCR selection |
 |---|---|
 | English (default) | English OCR |
-| Dutch / French / German | Single-language OCR |
-| French / German | Single-language OCR |
+| Dutch | Dutch OCR |
+| French | French OCR |
+| German | German OCR |
 
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
@@ -425,6 +426,7 @@ The web application exposes a small API:
 | DELETE | /api/conversions/{id} | Cancel a queued or active conversion. |
 | GET | /api/conversions/{id}/download | Download the validated EPUB after completion. |
 | GET | /api/conversions/{id}/report | Download the JSON quality report after completion. |
+| GET | /api/version | Read the application version and full commit identifier. |
 
 ### PDF-to-EPUB conversion API
 
