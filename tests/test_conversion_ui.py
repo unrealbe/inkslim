@@ -118,6 +118,7 @@ class Element {{
   appendChild(item) {{ this.children.push(item); }}
   replaceChildren(...items) {{ this.children = [...items]; this._text = ""; }}
   scrollIntoView() {{}}
+  addEventListener() {{}}
   set textContent(value) {{ this._text = String(value); this.children = []; }}
   get textContent() {{ return this._text + this.children.map(item => item.textContent || "").join(" "); }}
 }}
