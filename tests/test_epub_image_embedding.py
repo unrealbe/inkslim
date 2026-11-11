@@ -354,8 +354,8 @@ def test_places_image_between_paragraphs_on_its_source_page(tmp_path):
         assert before < figure < after
         assert b"<h2>Illustrations</h2>" not in chapter
         assert b"data-source-page=\"1\"" in chapter
-        assert b"<!-- inkslim-image-layout:4 -->\n</section>" in chapter
-        assert b"<!-- inkslim-image-layout:4 -->\\n</section>" not in chapter
+        assert b"<!-- inkslim-image-layout:5 -->\n</section>" in chapter
+        assert b"<!-- inkslim-image-layout:5 -->\\n</section>" not in chapter
         assert f"OEBPS/{relative_path}" in archive.namelist()
 
 
