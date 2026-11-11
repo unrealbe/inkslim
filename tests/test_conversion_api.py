@@ -39,12 +39,12 @@ def submit(api_client, content: bytes, filename="sample.pdf", **fields):
 
 
 def test_create_conversion_returns_queued_job_and_public_links(api_client, tmp_path):
-    response = submit(api_client, pdf_bytes(tmp_path), language="nld+eng")
+    response = submit(api_client, pdf_bytes(tmp_path), language="nld")
 
     assert response.status_code == 201
     body = response.get_json()
     assert body["status"] == "queued"
-    assert body["language"] == "nld+eng"
+    assert body["language"] == "nld"
     assert body["progress"]["completed_pages"] == 0
     assert body["links"]["self"].endswith(body["id"])
     assert "input_path" not in body
@@ -59,6 +59,7 @@ def test_create_conversion_returns_queued_job_and_public_links(api_client, tmp_p
         (b"%PDF-1.7", "book.txt", {}, 400),
         (b"", "empty.pdf", {}, 422),
         (b"%PDF-1.7", "book.pdf", {"language": "italian"}, 400),
+        (b"%PDF-1.7", "book.pdf", {"language": "nld+eng"}, 400),
     ],
 )
 def test_create_conversion_rejects_invalid_uploads(api_client, content, filename, fields, status):
