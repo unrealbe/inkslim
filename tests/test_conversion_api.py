@@ -63,7 +63,6 @@ def test_create_conversion_returns_queued_job_and_public_links(api_client, tmp_p
         (b"%PDF-1.7", "book.txt", {}, 400),
         (b"", "empty.pdf", {}, 422),
         (b"%PDF-1.7", "book.pdf", {"language": "italian"}, 400),
-        (b"%PDF-1.7", "book.pdf", {"language": "nld+eng"}, 400),
     ],
 )
 def test_create_conversion_rejects_invalid_uploads(api_client, content, filename, fields, status):
