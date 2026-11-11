@@ -84,7 +84,7 @@ def test_quality_report_renderer_displays_structure_warning_as_user_facing_text(
     app.AUTH_USER = app.AUTH_PASS = ""
     html = app.app.test_client().get("/").get_data(as_text=True)
     match = re.search(
-        r"function showQualityReport\\(url\\) \\{.*?\\n\\}\\nfunction renderConversionJob",
+        r"function showQualityReport\(url\) \{.*?\n\}\nfunction renderConversionJob",
         html,
         re.DOTALL,
     )
