@@ -87,7 +87,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "0.1.0-dev"
@@ -118,6 +118,78 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["pages"][0]["text_fidelity"]["token_retention"] == 1.0
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
+
+
+
+def test_quality_report_flags_document_structure_candidates_without_exposing_text(tmp_path):
+    source = tmp_path / "structure.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    for page_number in range(1, 4):
+        workspace.save_page_analysis(_analysis(page_number, PageDecision.USE_NATIVE))
+        workspace.save_page_cleaned_paragraphs(page_number, [{"text": f"Body text on page {page_number}."}])
+
+    workspace.save_document_model(DocumentModel(
+        metadata=EpubMetadata(title="Structure", language="en"),
+        chapters=[
+            DocumentChapter("Chapter One", [
+                DocumentParagraph("CHAPTER ONE", kind="h2", source_page=1),
+                DocumentParagraph("Body text on page one.", source_page=1),
+                DocumentParagraph("1", source_page=1),
+            ]),
+            DocumentChapter("Chapter One", [
+                DocumentParagraph("Chapter One", kind="h2", source_page=2),
+                DocumentParagraph("Body text on page two.", source_page=2),
+                DocumentParagraph("2", source_page=2),
+                DocumentParagraph("Out of order paragraph.", source_page=1),
+            ]),
+        ],
+    ))
+
+    path = build_quality_report(job, workspace, total_pages=3)
+    report_text = path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    diagnostics = report["document_structure"]
+
+    assert diagnostics["status"] == "available"
+    assert diagnostics["reading_order"]["status"] == "review"
+    assert diagnostics["reading_order"]["out_of_order_transitions"] == 1
+    assert diagnostics["duplicate_headings"]["count"] == 1
+    assert diagnostics["duplicate_headings"]["occurrences"][0] == {
+        "occurrence_count": 2,
+        "page_numbers": [1, 2],
+    }
+    assert diagnostics["possible_page_number_artifacts"] == {
+        "count": 2,
+        "page_numbers": [1, 2],
+    }
+    assert {
+        warning["code"] for warning in diagnostics["warnings"]
+    } == {
+        "SOURCE_PAGE_ORDER_REGRESSION",
+        "POSSIBLE_DUPLICATE_HEADINGS",
+        "POSSIBLE_PAGE_NUMBER_ARTIFACTS",
+    }
+    assert "CHAPTER ONE" not in report_text
+    assert "Out of order paragraph" not in report_text
+    assert report["summary"]["warning_count"] >= 3
+
+
+def test_quality_report_marks_document_structure_unavailable_without_model(tmp_path):
+    source = tmp_path / "no-model.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.EMPTY))
+
+    report = json.loads(build_quality_report(job, workspace, total_pages=1).read_text())
+    assert report["document_structure"]["status"] == "unavailable"
+    assert report["document_structure"]["warnings"] == []
+
 
 
 def test_quality_report_requires_every_analysis_checkpoint(tmp_path):
