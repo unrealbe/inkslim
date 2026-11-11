@@ -43,10 +43,24 @@ def _job_or_404(job_id: str) -> Job | tuple:
 
 
 def _job_json(job: Job) -> dict:
+    try:
+        input_size = Path(job.input_path).stat().st_size
+    except OSError:
+        input_size = None
+    try:
+        output_size = Path(job.output_path).stat().st_size if job.output_path else None
+    except OSError:
+        output_size = None
     payload = {
         "id": job.id,
         "short_id": job.id.split("-", 1)[0],
         "input_name": job.input_name,
+        "files": {
+            "input_format": Path(job.input_name).suffix.lower().lstrip(".") or None,
+            "output_format": "epub",
+            "input_size_bytes": input_size,
+            "output_size_bytes": output_size,
+        },
         "status": job.status.value,
         "language": job.language,
         "progress": {
