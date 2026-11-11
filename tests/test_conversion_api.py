@@ -113,7 +113,7 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
         [Chapter("Chapter 1", [Block("p", "A readable paragraph for the generated EPUB.")])],
     )
     report = workspace.output_dir / "quality-report.json"
-    report.write_text(json.dumps({"schema_version": 8, "output": {"format": "epub"}}), encoding="utf-8")
+    report.write_text(json.dumps({"schema_version": 9, "output": {"format": "epub"}}), encoding="utf-8")
     store.complete_job(job.id, output_path=output, report_path=report)
     completed = api_client.get(created["links"]["self"]).get_json()
     assert completed["files"]["output_size_bytes"] == output.stat().st_size
