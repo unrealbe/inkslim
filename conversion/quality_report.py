@@ -21,7 +21,7 @@ from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 from .text_fidelity import compare_text_fidelity, summarize_text_fidelity
 
-REPORT_SCHEMA_VERSION = 7
+REPORT_SCHEMA_VERSION = 8
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -427,6 +427,11 @@ def build_quality_report(
     image_stats["duplicate_cover_detection"] = _duplicate_cover_statistics(
         workspace, total_pages, content_classifications
     )
+    image_stats["optimized_image_count"] = 0
+    image_stats["optimization_saved_bytes"] = 0
+    image_stats["optimization_method"] = (
+        "jpeg_quality_85_optimize_progressive_png_lossless_optimize"
+    )
     document_language = workspace.load_document_language_analysis()
     text_fidelity_stats = summarize_text_fidelity(text_fidelity_pages)
     source_path = Path(job.input_path)
@@ -445,6 +450,27 @@ def build_quality_report(
                 image_stats["embedded_bytes"] = sum(
                     archive.getinfo(name).file_size for name in embedded_assets
                 )
+                optimized_count = 0
+                saved_bytes = 0
+                for page_number in range(1, total_pages + 1):
+                    checkpoint = workspace.load_page_images(page_number)
+                    if checkpoint is None:
+                        continue
+                    for image in checkpoint.images:
+                        archive_name = "OEBPS/" + image.source_path
+                        if archive_name not in embedded_assets:
+                            continue
+                        source_asset = workspace.root / image.source_path
+                        try:
+                            source_size = source_asset.stat().st_size
+                            embedded_size = archive.getinfo(archive_name).file_size
+                        except OSError:
+                            continue
+                        if embedded_size < source_size:
+                            optimized_count += 1
+                            saved_bytes += source_size - embedded_size
+                image_stats["optimized_image_count"] = optimized_count
+                image_stats["optimization_saved_bytes"] = saved_bytes
                 image_stats["status"] = (
                     "embedded" if embedded_assets else
                     "not_yet_embedded" if image_stats["extracted_count"] else
