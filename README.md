@@ -123,6 +123,8 @@ The Compose file on your NAS is a local file. Pulling a new image does **not** c
 | `JOB_RETENTION_HOURS` | `24` | Retain completed, failed and cancelled jobs for this many hours after completion. |
 | `MAX_CONVERSION_STORAGE_MB` | `5120` | Admission quota for persistent conversion job workspaces; a new upload returns HTTP 507 when usage is over the limit. |
 
+The dashboard displays the application version and short commit identifier. Main-branch images use `0.1.0-dev`; a Docker build from a `v0.1.0` Git tag reports application version `0.1.0`. The same version and full commit are included in conversion quality reports and available from `/api/version`.
+
 The supplied docker-compose.yml sets the host port mapping to 8125:8080 and configures the following environment variables.
 
 | Variable | Default | Description |
