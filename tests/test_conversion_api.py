@@ -49,6 +49,10 @@ def test_create_conversion_returns_queued_job_and_public_links(api_client, tmp_p
     assert body["links"]["self"].endswith(body["id"])
     assert "input_path" not in body
     assert "worker_id" not in body
+    assert body["files"]["input_format"] == "pdf"
+    assert body["files"]["output_format"] == "epub"
+    assert body["files"]["input_size_bytes"] > 0
+    assert body["files"]["output_size_bytes"] is None
     assert response.headers["Location"] == body["links"]["self"]
 
 
@@ -110,8 +114,10 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
         [Chapter("Chapter 1", [Block("p", "A readable paragraph for the generated EPUB.")])],
     )
     report = workspace.output_dir / "quality-report.json"
-    report.write_text(json.dumps({"schema_version": 7, "output": {"format": "epub"}}), encoding="utf-8")
+    report.write_text(json.dumps({"schema_version": 8, "output": {"format": "epub"}}), encoding="utf-8")
     store.complete_job(job.id, output_path=output, report_path=report)
+    completed = api_client.get(created["links"]["self"]).get_json()
+    assert completed["files"]["output_size_bytes"] == output.stat().st_size
 
     downloaded_epub = api_client.get(created["links"]["download"])
     assert downloaded_epub.status_code == 200
@@ -127,7 +133,7 @@ def test_completed_job_downloads_only_validated_epub_and_json_report(api_client,
     downloaded_report = api_client.get(created["links"]["report"])
     assert downloaded_report.status_code == 200
     assert downloaded_report.mimetype == "application/json"
-    assert json.loads(downloaded_report.data)["schema_version"] == 7
+    assert json.loads(downloaded_report.data)["schema_version"] == 8
     assert downloaded_report.headers["Cache-Control"] == "no-store, max-age=0"
     assert downloaded_report.headers["Pragma"] == "no-cache"
     assert downloaded_report.headers["Expires"] == "0"
