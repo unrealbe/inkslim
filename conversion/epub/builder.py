@@ -25,14 +25,15 @@ from xml.sax.saxutils import escape, quoteattr
 # Characters that XML 1.0 forbids (C0 controls except tab/newline/CR, surrogates, U+FFFE/U+FFFF).
 _XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
 _LANGUAGE = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*")
+EPUB_LAYOUT_VERSION = 2
 _BLOCK_TAGS = {"p": "p", "h2": "h2", "h3": "h3"}
 
 _CSS = """\
+/* Inkslim EPUB layout version: 2 */
 body { line-height: 1.4; }
 h1, h2, h3 { text-align: left; page-break-after: avoid; break-after: avoid; }
 h1 { margin: 1.5em 0 1em; }
-p { margin: 0; text-indent: 1.2em; }
-h1 + p, h2 + p, h3 + p { text-indent: 0; }
+p { margin: 0 0 0.8em; text-indent: 0; }
 """
 
 

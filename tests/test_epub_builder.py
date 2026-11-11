@@ -155,3 +155,13 @@ def test_passes_official_epubcheck(tmp_path, with_cover):
     assert result.returncode == 0, output
     assert "ERROR" not in output and "FATAL" not in output, output
     assert "WARNING" not in output, output
+
+
+
+def test_paragraph_styles_separate_paragraphs_without_first_line_indent(tmp_path):
+    path = build(tmp_path)
+    with zipfile.ZipFile(path) as archive:
+        stylesheet = archive.read("OEBPS/styles.css").decode("utf-8")
+    assert "Inkslim EPUB layout version: 2" in stylesheet
+    assert "p { margin: 0 0 0.8em; text-indent: 0; }" in stylesheet
+    assert "text-indent: 1.2em" not in stylesheet

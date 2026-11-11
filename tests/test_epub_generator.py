@@ -373,3 +373,60 @@ def test_cached_epub_is_rebuilt_when_pdf_metadata_changes(tmp_path):
         opf = ET.fromstring(archive.read("OEBPS/content.opf"))
         assert opf.findtext("opf:metadata/dc:title", namespaces=NS) == "Updated PDF Title"
         assert opf.findtext("opf:metadata/dc:creator", namespaces=NS) == "Updated PDF Author"
+
+
+
+def test_cover_candidate_ocr_text_is_omitted_but_other_pages_remain():
+    from conversion.epub.generator import _exclude_cover_ocr_text
+
+    cleaned = {
+        1: [_para(1, "4 x Pa > a x oe I z m")],
+        2: [_para(1, "Multiple formats available")],
+        3: [_para(1, "The actual story begins here.")],
+    }
+    classifications = {
+        1: {
+            "type": "cover_candidate",
+            "signals": {
+                "text_source": "tesseract",
+                "text_word_count": 11,
+                "largest_image_coverage": 1.0,
+            },
+        }
+    }
+
+    result, omitted = _exclude_cover_ocr_text(cleaned, classifications)
+
+    assert omitted == [1]
+    assert 1 not in result
+    assert result[2] == cleaned[2]
+    assert result[3] == cleaned[3]
+
+
+def test_cover_candidate_filter_does_not_omit_native_or_text_rich_pages():
+    from conversion.epub.generator import _exclude_cover_ocr_text
+
+    cleaned = {1: [_para(1, "A meaningful title and author.")]}
+    native_cover = {
+        1: {
+            "type": "cover_candidate",
+            "signals": {
+                "text_source": "native",
+                "text_word_count": 5,
+                "largest_image_coverage": 0.9,
+            },
+        }
+    }
+    text_rich_cover = {
+        1: {
+            "type": "cover_candidate",
+            "signals": {
+                "text_source": "tesseract",
+                "text_word_count": 25,
+                "largest_image_coverage": 0.9,
+            },
+        }
+    }
+
+    assert _exclude_cover_ocr_text(cleaned, native_cover) == (cleaned, [])
+    assert _exclude_cover_ocr_text(cleaned, text_rich_cover) == (cleaned, [])
