@@ -1039,6 +1039,7 @@ function conversionItem(id,name,initialMessage="Loading job status...") {
   const progress = document.createElement("progress");
   progress.max = 100;
   progress.removeAttribute("value");
+  progress.setAttribute("aria-label","Conversion progress");
   const actions = document.createElement("div");
   actions.className = "job-actions";
   item.append(title,identity,meta,progress,actions);
@@ -1255,7 +1256,10 @@ function renderConversionJob(item,job) {
         ? " · " + fmt(Math.abs(difference)) + " smaller"
         : difference > 0 ? " · " + fmt(difference) + " larger" : " · same size";
       const pageSummary = Number(details.total_pages) > 0
-        ? " · " + (details.completed_pages || 0) + "/" + details.total_pages + " pages" : "";
+        ? " · " + (details.completed_pages || 0) + "/" + details.total_pages + " pages · " +
+          Math.round((Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)) /
+            Number(details.total_pages)) * 100) + "%"
+        : "";
       conversionMeta(item,"completed" + pageSummary + " · " +
         String(files.input_format || "pdf").toUpperCase() + " " + fmt(inputSize) +
         " → " + String(files.output_format || "epub").toUpperCase() + " " +
