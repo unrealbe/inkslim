@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import zipfile
 from collections import Counter
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ from .pdf.content_classification import classify_page_content
 from .storage import JobWorkspace
 from .text_fidelity import compare_text_fidelity, summarize_text_fidelity
 
-REPORT_SCHEMA_VERSION = 8
+REPORT_SCHEMA_VERSION = 9
 _WORD_RE = re.compile(r"[^\W_]+(?:['’\-][^\W_]+)*", re.UNICODE)
 _EMPTY_DOCUMENT_PLACEHOLDER = "[Empty document]"
 
@@ -46,6 +47,121 @@ def _document_statistics(workspace: JobWorkspace) -> dict[str, int]:
     }
 
 
+
+
+def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -> dict[str, Any]:
+    """Report likely EPUB structure defects without including recognized book text."""
+    model = workspace.load_document_model()
+    if model is None:
+        return {
+            "status": "unavailable",
+            "reading_order": {"status": "not_evaluated", "out_of_order_transitions": 0, "page_transitions": []},
+            "duplicate_headings": {"count": 0, "occurrences": []},
+            "possible_page_number_artifacts": {"count": 0, "page_numbers": []},
+            "warnings": [],
+        }
+
+    heading_occurrences: dict[str, list[int | None]] = {}
+    page_number_candidates: set[int] = set()
+    source_pages: list[int] = []
+
+    def normalize_heading(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value).casefold()
+        return re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
+
+    for chapter in model.chapters:
+        chapter_page = next(
+            (paragraph.source_page for paragraph in chapter.paragraphs
+             if paragraph.source_page is not None),
+            None,
+        )
+        chapter_title = normalize_heading(chapter.title)
+        if len(chapter_title) >= 4:
+            heading_occurrences.setdefault(chapter_title, []).append(chapter_page)
+        title_heading_consumed = False
+
+        for paragraph in chapter.paragraphs:
+            page = paragraph.source_page
+            if page is not None:
+                source_pages.append(page)
+            text = " ".join(paragraph.text.split()).strip()
+            if not text:
+                continue
+            if paragraph.kind in {"h1", "h2", "h3"}:
+                normalized = normalize_heading(text)
+                if len(normalized) >= 4:
+                    # A chapter title is represented once: do not double-count its
+                    # matching first in-document heading, but retain later repeats.
+                    if normalized == chapter_title and not title_heading_consumed:
+                        title_heading_consumed = True
+                    else:
+                        heading_occurrences.setdefault(normalized, []).append(page)
+            elif (
+                paragraph.kind == "p"
+                and page is not None
+                and re.fullmatch(r"\d{1,4}", text)
+                and 1 <= int(text) <= total_pages
+                and int(text) in {page, page - 1}
+            ):
+                page_number_candidates.add(page)
+
+    transitions = [
+        {"from_page": previous, "to_page": current}
+        for previous, current in zip(source_pages, source_pages[1:])
+        if current < previous
+    ]
+    duplicate_headings = [
+        {
+            "occurrence_count": len(pages),
+            "page_numbers": sorted({page for page in pages if page is not None})[:100],
+        }
+        for pages in heading_occurrences.values()
+        if len(pages) > 1
+    ]
+    duplicate_headings.sort(key=lambda item: (-item["occurrence_count"], item["page_numbers"]))
+    duplicate_heading_count = len(duplicate_headings)
+    duplicate_heading_occurrences = duplicate_headings[:100]
+
+    warnings: list[dict[str, Any]] = []
+    if transitions:
+        warnings.append({
+            "code": "SOURCE_PAGE_ORDER_REGRESSION",
+            "message": "Reconstructed paragraphs do not follow monotonically increasing source-page order.",
+            "affected_transition_count": len(transitions),
+            "transitions": transitions[:100],
+        })
+    if duplicate_heading_count:
+        warnings.append({
+            "code": "POSSIBLE_DUPLICATE_HEADINGS",
+            "message": "Identical heading text occurs more than once; review whether repeated headings are intentional.",
+            "affected_heading_count": duplicate_heading_count,
+            "occurrences": duplicate_heading_occurrences,
+        })
+    if page_number_candidates:
+        warnings.append({
+            "code": "POSSIBLE_PAGE_NUMBER_ARTIFACTS",
+            "message": "Short numeric paragraphs match their source page number and may be printed page numbers.",
+            "affected_page_count": len(page_number_candidates),
+            "page_numbers": sorted(page_number_candidates)[:100],
+        })
+
+    return {
+        "status": "available",
+        "reading_order": {
+            "status": "review" if transitions else "ok",
+            "out_of_order_transitions": len(transitions),
+            "page_transitions": transitions[:100],
+        },
+        "duplicate_headings": {
+            "count": duplicate_heading_count,
+            "occurrences": duplicate_heading_occurrences,
+        },
+        "possible_page_number_artifacts": {
+            "count": len(page_number_candidates),
+            "page_numbers": sorted(page_number_candidates)[:100],
+        },
+        "warnings": warnings,
+    }
 
 
 def _image_statistics(workspace: JobWorkspace, total_pages: int) -> dict[str, Any]:
@@ -423,6 +539,7 @@ def build_quality_report(
     marginalia = workspace.load_marginalia_analysis()
     structure = workspace.load_structure_analysis()
     content_stats = _document_statistics(workspace)
+    document_structure = _document_structure_diagnostics(workspace, total_pages)
     image_stats = _image_statistics(workspace, total_pages)
     image_stats["duplicate_cover_detection"] = _duplicate_cover_statistics(
         workspace, total_pages, content_classifications
@@ -534,6 +651,7 @@ def build_quality_report(
             "heading_count": structure["heading_count"] if structure else 0,
             "chapter_count": structure["chapter_count"] if structure else 0,
         },
+        "document_structure": document_structure,
         "images": image_stats,
         "duplicate_covers": image_stats["duplicate_cover_detection"],
         "document_language": document_language or {
@@ -571,7 +689,7 @@ def build_quality_report(
             "pages_with_results": sum(sources.values()),
             "result_sources": dict(sorted(sources.items())),
             "result_qualities": dict(sorted(qualities.items())),
-            "warning_count": warning_count + len(content_warnings),
+            "warning_count": warning_count + len(content_warnings) + len(document_structure["warnings"]),
             "mean_ocr_confidence": (
                 round(sum(confidence_values) / len(confidence_values), 2)
                 if confidence_values else None

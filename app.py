@@ -1194,10 +1194,46 @@ function showQualityReport(url) {
         (imageStats.missing_checkpoint_pages || []).length + " missing page checkpoints.";
       panel.appendChild(imageNote);
     }
+    const structure = report.document_structure || {};
+    const structureTitle = document.createElement("h3");
+    structureTitle.textContent = "EPUB structure check";
+    const structureDetails = document.createElement("p");
+    structureDetails.className = "meta";
+    if (structure.status === "available") {
+      const readingOrder = structure.reading_order || {};
+      structureDetails.textContent = "Source-page order: " +
+        (readingOrder.status === "review" ? "review needed" : "OK") +
+        " · " + (readingOrder.out_of_order_transitions || 0) + " out-of-order transitions";
+      panel.append(structureTitle,structureDetails);
+      const duplicateHeadings = structure.duplicate_headings || {};
+      if (Number(duplicateHeadings.count) > 0) {
+        const duplicateDetails = document.createElement("p");
+        duplicateDetails.className = "meta";
+        const duplicatePages = [...new Set((duplicateHeadings.occurrences || [])
+          .flatMap(item => item.page_numbers || []))].sort((a,b) => a-b);
+        duplicateDetails.textContent = "Possible repeated headings: " +
+          duplicateHeadings.count + " · Source pages " + duplicatePages.join(", ");
+        panel.appendChild(duplicateDetails);
+      }
+      const pageNumbers = structure.possible_page_number_artifacts || {};
+      if (Number(pageNumbers.count) > 0) {
+        const pageNumberDetails = document.createElement("p");
+        pageNumberDetails.className = "meta";
+        pageNumberDetails.textContent = "Possible printed page-number artefacts: " +
+          pageNumbers.count + " · Source pages " + (pageNumbers.page_numbers || []).join(", ");
+        panel.appendChild(pageNumberDetails);
+      }
+    } else {
+      structureDetails.textContent = "Document structure checks are unavailable.";
+      panel.append(structureTitle,structureDetails);
+    }
     const warningTitle = document.createElement("h3");
     warningTitle.textContent = "Content warnings";
     const warnings = document.createElement("p");
-    const warningItems = Array.isArray(quality.warnings) ? quality.warnings : [];
+    const warningItems = [
+      ...(Array.isArray(quality.warnings) ? quality.warnings : []),
+      ...(Array.isArray(structure.warnings) ? structure.warnings : [])
+    ];
     const warningLines = warningItems.map(warning => {
       if (typeof warning === "string") return warning;
       const pages = Array.isArray(warning.page_numbers) && warning.page_numbers.length

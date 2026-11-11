@@ -311,19 +311,20 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 8 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 9 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
 - Embedded image count and bytes, alongside extraction counts and warnings. The report distinguishes extracted assets from images actually packaged in the EPUB.
 - Reconstructed chapter, paragraph, heading and word counts.
+- EPUB content-structure diagnostics: source-page reading-order regressions, possible duplicate headings and likely printed page-number artefacts. These are review warnings, not automatic conversion failures; the report never includes recognized book text.
 - Text reconstruction fidelity diagnostics: per-page and aggregate token retention and token-sequence similarity between recognized page text and reconstructed paragraphs. These are diagnostic metrics only and never change or reject the EPUB.
 - Counts of pages with reconstructed text, non-empty source pages without reconstructed text, and pages classified as empty.
 - Text-page coverage across non-empty source pages.
 - Per-page analysis decisions, OCR diagnostics, confidence values and warnings.
 - Per-page semantic content candidates (text, scanned text, mixed, cover, illustration, advertisement, empty or unknown), confidence scores, evidence and aggregate page-type counts.
 
-The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes both page-level warnings and content-quality warning entries.
+The `content_quality.warnings` array contains non-fatal content warnings. Current codes include `NO_BODY_TEXT_EXTRACTED` when no readable body text was reconstructed, `OCR_PAGES_WITHOUT_TEXT` when pages requiring OCR have no reconstructed text, and `PAGES_WITHOUT_TEXT` when non-empty source pages have no reconstructed text. These warnings do not by themselves fail a conversion; they flag output that may need manual review. The summary warning count includes page-level warnings, content-quality warnings and document-structure diagnostics.
 
 Image metrics are derived from durable per-page image checkpoints. If a checkpoint or extracted asset is missing, the report flags incomplete detection or missing assets rather than silently treating the page as image-free. Internal asset paths are not exposed.
 
@@ -344,7 +345,8 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 8), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 9), including document-structure QA, PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- EPUB content-structure diagnostics for page order, repeated headings and likely printed page-number artefacts.
 - Exact and perceptual duplicate-cover diagnostics: SHA-256 exact-byte matches plus 64-bit difference-hash near matches with conservative aspect-ratio and image-coverage thresholds. Detection is report-only; images are never automatically removed.
 - EPUB document language inferred separately from OCR language selection, using reconstructed page text when sufficient evidence is available.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.

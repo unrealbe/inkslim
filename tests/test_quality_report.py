@@ -16,7 +16,7 @@ from conversion.epub.builder import EpubMetadata
 from conversion.models import PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
 from conversion.pdf.images import PageImage, PageImages
 from conversion.pdf.models import PageAnalysis, PageDecision
-from conversion.quality_report import build_quality_report
+from conversion.quality_report import _document_structure_diagnostics, build_quality_report
 from conversion.storage import JobStore
 
 
@@ -87,7 +87,7 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     report = json.loads(path.read_text(encoding="utf-8"))
 
     assert path == workspace.output_dir / "quality-report.json"
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert report["report_type"] == "pdf_page_analysis_and_ocr_quality"
     assert report["generator"]["name"] == "inkslim"
     assert report["generator"]["version"] == "0.1.0-dev"
@@ -118,6 +118,132 @@ def test_quality_report_aggregates_page_checkpoints_without_text(tmp_path):
     assert report["pages"][0]["text_fidelity"]["token_retention"] == 1.0
     assert report["privacy"]["recognized_text_included"] is False
     assert "recognized sample text" not in path.read_text(encoding="utf-8")
+
+
+
+def test_quality_report_flags_document_structure_candidates_without_exposing_text(tmp_path):
+    source = tmp_path / "structure.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+
+    for page_number in range(1, 4):
+        workspace.save_page_analysis(_analysis(page_number, PageDecision.USE_NATIVE))
+        workspace.save_page_cleaned_paragraphs(page_number, [{"text": f"Body text on page {page_number}."}])
+
+    workspace.save_document_model(DocumentModel(
+        metadata=EpubMetadata(title="Structure", language="en"),
+        chapters=[
+            DocumentChapter("Chapter One", [
+                DocumentParagraph("CHAPTER ONE", kind="h2", source_page=1),
+                DocumentParagraph("Body text on page one.", source_page=1),
+                DocumentParagraph("1", source_page=1),
+            ]),
+            DocumentChapter("Chapter One", [
+                DocumentParagraph("Chapter One", kind="h2", source_page=2),
+                DocumentParagraph("Body text on page two.", source_page=2),
+                DocumentParagraph("2", source_page=2),
+                DocumentParagraph("Out of order paragraph.", source_page=1),
+            ]),
+        ],
+    ))
+
+    path = build_quality_report(job, workspace, total_pages=3)
+    report_text = path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    diagnostics = report["document_structure"]
+
+    assert diagnostics["status"] == "available"
+    assert diagnostics["reading_order"]["status"] == "review"
+    assert diagnostics["reading_order"]["out_of_order_transitions"] == 1
+    assert diagnostics["duplicate_headings"]["count"] == 1
+    assert diagnostics["duplicate_headings"]["occurrences"][0] == {
+        "occurrence_count": 2,
+        "page_numbers": [1, 2],
+    }
+    assert diagnostics["possible_page_number_artifacts"] == {
+        "count": 2,
+        "page_numbers": [1, 2],
+    }
+    assert {
+        warning["code"] for warning in diagnostics["warnings"]
+    } == {
+        "SOURCE_PAGE_ORDER_REGRESSION",
+        "POSSIBLE_DUPLICATE_HEADINGS",
+        "POSSIBLE_PAGE_NUMBER_ARTIFACTS",
+    }
+    assert "CHAPTER ONE" not in report_text
+    assert "Chapter One" not in report_text
+    assert "Out of order paragraph" not in report_text
+    assert report["summary"]["warning_count"] == 4
+
+
+
+def test_document_structure_counts_repeated_headings_within_chapter_and_uses_each_page():
+    model = DocumentModel(
+        metadata=EpubMetadata(title="Repeated headings", language="en"),
+        chapters=[
+            DocumentChapter("Opening", [
+                DocumentParagraph("Repeated section", kind="h2", source_page=2),
+                DocumentParagraph("Body", source_page=2),
+                DocumentParagraph("Repeated section", kind="h3", source_page=4),
+            ]),
+        ],
+    )
+
+    class Workspace:
+        @staticmethod
+        def load_document_model():
+            return model
+
+    report = _document_structure_diagnostics(Workspace(), total_pages=4)
+
+    assert report["duplicate_headings"]["count"] == 1
+    assert report["duplicate_headings"]["occurrences"] == [
+        {"occurrence_count": 2, "page_numbers": [2, 4]},
+    ]
+
+
+def test_document_structure_preserves_full_duplicate_heading_count_over_display_limit():
+    chapters = []
+    for index in range(101):
+        title = f"Repeated section {index}"
+        chapters.extend([
+            DocumentChapter(title, [DocumentParagraph(title, kind="h2", source_page=index + 1)]),
+            DocumentChapter(title, [DocumentParagraph(title, kind="h2", source_page=index + 102)]),
+        ])
+    model = DocumentModel(
+        metadata=EpubMetadata(title="Many repeated headings", language="en"),
+        chapters=chapters,
+    )
+
+    class Workspace:
+        @staticmethod
+        def load_document_model():
+            return model
+
+    report = _document_structure_diagnostics(Workspace(), total_pages=202)
+
+    assert report["duplicate_headings"]["count"] == 101
+    assert len(report["duplicate_headings"]["occurrences"]) == 100
+    warning = next(item for item in report["warnings"] if item["code"] == "POSSIBLE_DUPLICATE_HEADINGS")
+    assert warning["affected_heading_count"] == 101
+    assert len(warning["occurrences"]) == 100
+
+
+def test_quality_report_marks_document_structure_unavailable_without_model(tmp_path):
+    source = tmp_path / "no-model.pdf"
+    source.write_bytes(b"%PDF-placeholder")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    workspace = store.workspace(job.id)
+    workspace.save_page_analysis(_analysis(1, PageDecision.EMPTY))
+
+    report = json.loads(build_quality_report(job, workspace, total_pages=1).read_text())
+    assert report["document_structure"]["status"] == "unavailable"
+    assert report["document_structure"]["warnings"] == []
+
 
 
 def test_quality_report_requires_every_analysis_checkpoint(tmp_path):
@@ -424,7 +550,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert duplicate_report == {
         "status": "complete",
         "method": "sha256_exact_file_bytes_and_dhash64",
