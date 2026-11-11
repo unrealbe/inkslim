@@ -462,9 +462,16 @@ def build_quality_report(
                             continue
                         source_asset = workspace.root / image.source_path
                         try:
-                            source_size = source_asset.stat().st_size
+                            resolved_asset = source_asset.resolve(strict=True)
+                            if (
+                                not resolved_asset.is_relative_to(workspace.root.resolve())
+                                or source_asset.is_symlink()
+                                or not resolved_asset.is_file()
+                            ):
+                                continue
+                            source_size = resolved_asset.stat().st_size
                             embedded_size = archive.getinfo(archive_name).file_size
-                        except OSError:
+                        except (OSError, RuntimeError):
                             continue
                         if embedded_size < source_size:
                             optimized_count += 1
