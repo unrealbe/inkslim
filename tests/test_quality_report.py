@@ -379,7 +379,7 @@ def test_quality_report_detects_only_byte_identical_cover_images_without_removin
     report = json.loads(report_path.read_text(encoding="utf-8"))
     duplicate_report = report["images"]["duplicate_cover_detection"]
 
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert duplicate_report == {
         "status": "complete",
         "method": "sha256_exact_file_bytes_and_dhash64",
