@@ -73,7 +73,7 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
             None,
         )
         chapter_title = unicodedata.normalize("NFKC", chapter.title).casefold()
-        chapter_title = re.sub(r"[^\\w]+", " ", chapter_title, flags=re.UNICODE).strip()
+        chapter_title = re.sub(r"[^\w]+", " ", chapter_title, flags=re.UNICODE).strip()
         if len(chapter_title) >= 4:
             chapter_headings.add(chapter_title)
 
@@ -86,13 +86,13 @@ def _document_structure_diagnostics(workspace: JobWorkspace, total_pages: int) -
                 continue
             if paragraph.kind in {"h1", "h2", "h3"}:
                 normalized = unicodedata.normalize("NFKC", text).casefold()
-                normalized = re.sub(r"[^\\w]+", " ", normalized, flags=re.UNICODE).strip()
+                normalized = re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
                 if len(normalized) >= 4:
                     chapter_headings.add(normalized)
             elif (
                 paragraph.kind == "p"
                 and page is not None
-                and re.fullmatch(r"\\d{1,4}", text)
+                and re.fullmatch(r"\d{1,4}", text)
                 and 1 <= int(text) <= total_pages
                 and int(text) in {page, page - 1}
             ):
