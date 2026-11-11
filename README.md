@@ -198,7 +198,7 @@ The OCR language selection controls the single Tesseract model used for the book
 
 Extracted JPEG images are re-encoded at quality 85 with optimized progressive encoding when this reduces their size by at least 10%; PNG images are losslessly optimized and retain transparency. Images are never upscaled, and the original asset is retained when re-encoding does not produce a meaningful size reduction. The quality report records the number of optimized images and the bytes saved.
 
-The generated EPUB contains reconstructed text, headings and chapter navigation. Extracted PDF images are placed inline after a source text block when page geometry provides a clear, bounded anchor. Images without a reliable anchor remain in a labelled Illustrations section at the end of the book. Semantic page classification is included in the quality report and guides conservative image handling: a first-page cover candidate is promoted only at classification confidence ≥0.75 with a dominant image covering ≥45% of the page; advertisement candidates at confidence ≥0.65 are retained in a separate Promotional material section rather than placed inline. No image is discarded; uncertain images keep the existing inline/Illustrations fallback. OCR is unchanged, and duplicate-cover removal remains future work.
+The generated EPUB contains reconstructed text, headings and chapter navigation. PDF `/Title` and `/Author` document information are used for the EPUB title and creator when present; otherwise, filenames in the common `Title - Author.pdf` form supply those fields. A confidently detected first-page cover is included both as EPUB cover metadata and as visible content before the first chapter heading. Other extracted images are kept in source-page order: images that fit a clear vertical text gap are placed inline after the preceding text block, while large page images (coverage ≥45%) without a safe gap are placed before the first text block on their source page. Advertisement classification does not move source images to the end of the book. Only images that cannot be assigned a reliable source-page anchor remain in a labelled Illustrations section at the end. No image is discarded, OCR is unchanged, and duplicate-cover removal remains future work.
 
 ### PDF settings
 
@@ -311,7 +311,7 @@ The conversion workflow is available in its own section of the web interface. Se
 
 ### Conversion quality report
 
-Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 7 and includes:
+Each completed conversion writes `quality-report.json` beside the generated EPUB. The report uses schema version 8 and includes:
 
 - Source PDF and generated EPUB sizes in bytes.
 - Image-preservation metrics: pages scanned and containing images, detected and extracted image counts, extraction failures/skips, missing assets, extracted image bytes, and per-page extraction warnings.
@@ -344,19 +344,19 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Native PDF text extraction and sampled OCR validation.
 - Tesseract TSV OCR for pages that require recognition, with per-job language selection.
 - Durable per-page analysis, text, line, paragraph, cleanup and structure checkpoints.
-- Per-page and aggregate JSON quality report (schema version 7), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
+- Per-page and aggregate JSON quality report (schema version 8), including PDF image extraction and EPUB embedding metrics, EPUB output statistics and non-fatal content-quality warnings, without recognized book text.
 - Exact and perceptual duplicate-cover diagnostics: SHA-256 exact-byte matches plus 64-bit difference-hash near matches with conservative aspect-ratio and image-coverage thresholds. Detection is report-only; images are never automatically removed.
 - EPUB document language inferred separately from OCR language selection, using reconstructed page text when sufficient evidence is available.
 - Line reconstruction with conservative two-column reading order and geometry-based paragraph reconstruction.
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
 - Conservative chapter/heading detection and a durable engine-independent document model.
-- EPUB 3 generation from conversion jobs, including navigation, chapters and language metadata.
+- EPUB 3 generation from conversion jobs, including navigation, chapters, PDF-derived or filename-fallback title/author metadata, and source-page-ordered image placement.
 - Runtime EPUB structural validation before a conversion job is marked complete; official EPUBCheck remains part of CI.
 
 **Next implementation milestones**
 
-1. Review exact and perceptual duplicate-cover diagnostics against real books; consider any removal only after separate validation. Semantic cover metadata and advertisement separation are implemented.
+1. Review exact and perceptual duplicate-cover diagnostics against real books; consider any removal only after separate validation. Semantic cover metadata and source-page image ordering are implemented; advertisement candidates no longer force images into a separate end-of-book section.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
 3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
 
