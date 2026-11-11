@@ -1178,6 +1178,13 @@ function showQualityReport(url) {
               ? "Image detection or extraction was incomplete; some source images may be missing."
               : "Image extraction status unavailable.";
     panel.append(imageTitle,imageDetails,imageStorage,imageStatus);
+    if (Number(imageStats.optimized_image_count) > 0) {
+      const optimization = document.createElement("p");
+      optimization.className = "meta";
+      optimization.textContent = "Optimized " + imageStats.optimized_image_count +
+        " images · Saved " + fmt(imageStats.optimization_saved_bytes || 0);
+      panel.appendChild(optimization);
+    }
     if (imageStats.detection_complete === false) {
       const imageNote = document.createElement("p");
       imageNote.className = "meta";
