@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import json
+import re
+import shutil
+import subprocess
+
+import pytest
+
 import app
 
 
@@ -66,6 +73,78 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'images included in the EPUB' in html
     assert 'files.input_size_bytes' in html
     assert 'completed · PDF' in html
+
+
+
+def test_quality_report_renderer_displays_structure_warning_as_user_facing_text():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required to exercise the browser-side report renderer")
+
+    app.AUTH_USER = app.AUTH_PASS = ""
+    html = app.app.test_client().get("/").get_data(as_text=True)
+    match = re.search(
+        r"function showQualityReport\\(url\\) \\{.*?\\n\\}\\nfunction renderConversionJob",
+        html,
+        re.DOTALL,
+    )
+    assert match is not None
+
+    report = {
+        "job": {"input_name": "sample.pdf", "total_pages": 4},
+        "summary": {"pages_with_results": 4, "total_pages": 4, "decisions": {}, "result_sources": {}},
+        "content_quality": {"text_page_coverage": 1, "pages_with_text": 4, "pages_without_text": 0},
+        "images": {},
+        "document_structure": {
+            "status": "available",
+            "reading_order": {"status": "ok", "out_of_order_transitions": 0},
+            "duplicate_headings": {
+                "count": 1,
+                "occurrences": [{"occurrence_count": 2, "page_numbers": [2, 4]}],
+            },
+            "possible_page_number_artifacts": {"count": 0, "page_numbers": []},
+            "warnings": [{
+                "code": "POSSIBLE_DUPLICATE_HEADINGS",
+                "message": "Identical heading text occurs more than once; review whether repeated headings are intentional.",
+            }],
+        },
+        "output": {},
+    }
+    renderer = match.group(0).rsplit("\\nfunction renderConversionJob", 1)[0]
+    script = f"""
+class Element {{
+  constructor(tag) {{ this.tag = tag; this.children = []; this.style = {{}}; this._text = ""; }}
+  append(...items) {{ this.children.push(...items); }}
+  appendChild(item) {{ this.children.push(item); }}
+  replaceChildren(...items) {{ this.children = [...items]; this._text = ""; }}
+  scrollIntoView() {{}}
+  set textContent(value) {{ this._text = String(value); this.children = []; }}
+  get textContent() {{ return this._text + this.children.map(item => item.textContent || "").join(" "); }}
+}}
+const panel = new Element("section");
+const document = {{ createElement: tag => new Element(tag) }};
+const window = {{ print() {{}} }};
+const $ = () => panel;
+const fmt = value => String(value) + " bytes";
+const report = {json.dumps(report)};
+const fetch = async () => ({{ ok: true, json: async () => report }});
+{renderer}
+showQualityReport("/report");
+setImmediate(() => {{
+  const rendered = panel.textContent;
+  if (!rendered.includes("Possible repeated headings: 1 · Source pages 2, 4")) {{
+    throw new Error("Repeated-heading summary was not rendered: " + rendered);
+  }}
+  if (!rendered.includes("Identical heading text occurs more than once")) {{
+    throw new Error("Structure warning message was not rendered: " + rendered);
+  }}
+  if (rendered.includes("POSSIBLE_DUPLICATE_HEADINGS")) {{
+    throw new Error("Internal warning code leaked into the UI");
+  }}
+}});
+"""
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True, check=True)
+    assert result.returncode == 0
 
 
 def test_existing_shrink_interface_remains_available():
