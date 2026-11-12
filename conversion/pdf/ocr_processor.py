@@ -18,6 +18,7 @@ from ..paragraphs import reconstruct_paragraphs
 from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
 from ..pagination import detect_repeated_marginalia
+from ..stitching import stitch_page_paragraphs
 from ..structure import detect_document_structure
 from ..epub.generator import generate_job_epub
 from .analyzer import PdfAnalysisError, open_pdf_document
@@ -231,8 +232,37 @@ class PdfOcrJobProcessor:
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after page furniture cleanup")
 
-                # Structure detection is document-wide and runs only after every
-                # cleaned page checkpoint is durable. Annotations never rewrite text.
+                # Stitching is a separate document-level representation. Original
+                # per-page cleaned checkpoints remain immutable and resumable.
+                stitched_checkpoint = workspace.load_stitched_paragraphs(total_pages)
+                if stitched_checkpoint is None:
+                    cleaned_pages_for_stitching = {}
+                    page_context = {}
+                    for page_number in range(1, total_pages + 1):
+                        paragraphs = workspace.load_page_cleaned_paragraphs(page_number)
+                        analysis = workspace.load_page_analysis(page_number)
+                        if paragraphs is None or analysis is None:
+                            raise JobProcessingError(
+                                "CLEANED_TEXT_CHECKPOINT_MISSING",
+                                f"Cleaned text or page analysis for page {page_number} is missing.",
+                            )
+                        cleaned_pages_for_stitching[page_number] = paragraphs
+                        page_context[page_number] = {
+                            "decision": analysis.decision.value,
+                            "image_count": analysis.image_count,
+                        }
+                    stitched_pages, stitching_analysis = stitch_page_paragraphs(
+                        cleaned_pages_for_stitching, page_context, total_pages=total_pages
+                    )
+                    workspace.save_stitched_paragraphs(stitched_pages, stitching_analysis)
+                else:
+                    stitched_pages, stitching_analysis = stitched_checkpoint
+
+                if store.is_cancel_requested(job.id):
+                    raise JobCancelled("Cancellation requested after paragraph stitching")
+
+                # Structure detection consumes stitched text so paragraph indices
+                # and chapter annotations match the EPUB representation.
                 structure = workspace.load_structure_analysis()
                 has_all_page_structures = all(
                     workspace.load_page_structure(page_number) is not None
@@ -243,17 +273,8 @@ class PdfOcrJobProcessor:
                     or structure.get("total_pages") != total_pages
                     or not has_all_page_structures
                 ):
-                    cleaned_pages = {}
-                    for page_number in range(1, total_pages + 1):
-                        paragraphs = workspace.load_page_cleaned_paragraphs(page_number)
-                        if paragraphs is None:
-                            raise JobProcessingError(
-                                "CLEANED_TEXT_CHECKPOINT_MISSING",
-                                f"Cleaned text for page {page_number} is missing.",
-                            )
-                        cleaned_pages[page_number] = paragraphs
                     structure, page_annotations = detect_document_structure(
-                        cleaned_pages, total_pages=total_pages
+                        stitched_pages, total_pages=total_pages
                     )
                     workspace.save_structure_analysis(structure)
                 else:
