@@ -485,6 +485,8 @@ class JobWorkspace:
             pages = {}
             for key, paragraphs in raw_pages.items():
                 page = int(key)
+                if key != str(page) or page in pages:
+                    raise ValueError("Stitched paragraph checkpoint has duplicate or invalid pages")
                 if not 1 <= page <= total_pages or not isinstance(paragraphs, list):
                     raise ValueError("Stitched paragraph checkpoint has invalid pages")
                 if any(not isinstance(item, dict) for item in paragraphs):
