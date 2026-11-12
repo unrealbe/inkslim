@@ -165,3 +165,70 @@ def test_negative_and_out_of_bounds_boxes_are_ignored(page_image, monkeypatch):
     result = TesseractOcrEngine().recognize(page_image, ["eng"])
     assert [block.text for block in result.blocks] == ["rand"]
     assert result.blocks[0].bbox == (0.95, 0.2, 1.0, 0.32)
+
+
+
+def test_low_confidence_retries_with_psm_6_and_selects_better_result(page_image, monkeypatch):
+    first = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="55.0", text="een twee drie vier vijf"),
+        stderr="",
+    )
+    retry = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="82.0", text="een twee drie vier vijf"),
+        stderr="",
+    )
+    mocked = Mock(side_effect=[first, retry])
+    monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
+
+    result = TesseractOcrEngine().recognize(page_image, ["nld"])
+
+    assert result.metrics.mean_ocr_confidence == 82.0
+    assert result.quality is QualityStatus.HIGH
+    assert result.warnings == ["OCR_RETRY_PSM_6_SELECTED"]
+    assert mocked.call_count == 2
+    assert mocked.call_args_list[0].args[0][6] == "3"
+    assert mocked.call_args_list[1].args[0][6] == "6"
+
+
+def test_retry_is_rejected_when_it_loses_too_much_text(page_image, monkeypatch):
+    first = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="55.0", text="een twee drie vier vijf"),
+        stderr="",
+    )
+    retry = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="95.0", text="een"),
+        stderr="",
+    )
+    mocked = Mock(side_effect=[first, retry])
+    monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
+
+    result = TesseractOcrEngine().recognize(page_image, ["nld"])
+
+    assert result.metrics.mean_ocr_confidence == 55.0
+    assert result.blocks[0].text == "een twee drie vier vijf"
+    assert result.quality is QualityStatus.REVIEW
+    assert result.warnings == ["LOW_OCR_CONFIDENCE", "OCR_RETRY_PSM_6_NOT_SELECTED"]
+
+
+def test_retry_failure_preserves_first_ocr_result(page_image, monkeypatch):
+    first = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="55.0", text="originele tekst"),
+        stderr="",
+    )
+    def fail_retry(*args, **kwargs):
+        if kwargs:
+            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+        return first
+    mocked = Mock(side_effect=[first, subprocess.TimeoutExpired(["tesseract"], 120)])
+    monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
+
+    result = TesseractOcrEngine().recognize(page_image, ["nld"])
+
+    assert result.blocks[0].text == "originele tekst"
+    assert result.metrics.mean_ocr_confidence == 55.0
+    assert result.warnings == ["LOW_OCR_CONFIDENCE", "OCR_RETRY_PSM_6_FAILED"]
