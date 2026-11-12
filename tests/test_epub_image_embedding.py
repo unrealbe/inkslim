@@ -171,6 +171,10 @@ def test_embedding_oserror_removes_text_only_epub(tmp_path, monkeypatch):
         output_dir=tmp_path,
         load_page_images=lambda _page: None,
         load_page_cleaned_paragraphs=lambda _page: [],
+        load_stitched_paragraphs=lambda total_pages: (
+            {page: [] for page in range(1, total_pages + 1)},
+            {"schema_version": 1, "total_pages": total_pages, "stitched_count": 0, "stitched": []},
+        ),
         load_structure_analysis=lambda: {},
         load_page_structure=lambda _page: [],
         save_document_model=lambda _doc: None,
