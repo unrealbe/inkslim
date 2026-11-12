@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import subprocess
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Protocol
@@ -89,6 +90,55 @@ class TesseractOcrEngine:
         language_argument = self._language_argument(languages)
         width, height = self._read_image_dimensions(path)
 
+        page_deadline = time.monotonic() + self.timeout_seconds
+        first = self._recognize_with_psm(
+            path, language_argument, page_number=page_number,
+            width=width, height=height, psm=3,
+        )
+        first_confidence = first.metrics.mean_ocr_confidence
+        if (
+            not first.blocks
+            or first_confidence is None
+            or first_confidence >= self.high_confidence_threshold
+        ):
+            return first
+
+        # A second layout analysis is deliberately limited to low-confidence
+        # pages. The first result remains the fallback if retry fails or is
+        # materially less complete.
+        remaining_timeout = page_deadline - time.monotonic()
+        if remaining_timeout <= 0:
+            first.warnings.append("OCR_RETRY_PSM_6_SKIPPED_TIMEOUT_BUDGET")
+            return first
+
+        try:
+            retry = self._recognize_with_psm(
+                path, language_argument, page_number=page_number,
+                width=width, height=height, psm=6,
+                timeout_seconds=remaining_timeout,
+            )
+        except OcrError:
+            first.warnings.append("OCR_RETRY_PSM_6_FAILED")
+            return first
+
+        if self._should_use_retry(first, retry):
+            retry.warnings.append("OCR_RETRY_PSM_6_SELECTED")
+            return retry
+
+        first.warnings.append("OCR_RETRY_PSM_6_NOT_SELECTED")
+        return first
+
+    def _recognize_with_psm(
+        self,
+        path: Path,
+        language_argument: str,
+        *,
+        page_number: int,
+        width: int,
+        height: int,
+        psm: int,
+        timeout_seconds: float | None = None,
+    ) -> PageResult:
         command = [
             self.executable,
             str(path),
@@ -96,7 +146,7 @@ class TesseractOcrEngine:
             "-l",
             language_argument,
             "--psm",
-            "3",
+            str(psm),
             "tsv",
         ]
         try:
@@ -107,7 +157,7 @@ class TesseractOcrEngine:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.timeout_seconds,
+                timeout=self.timeout_seconds if timeout_seconds is None else timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
             raise OcrError("OCR_TIMEOUT", "Text recognition exceeded the page time limit.") from exc
@@ -152,6 +202,24 @@ class TesseractOcrEngine:
             metrics=PageMetrics(mean_ocr_confidence=mean_confidence),
             warnings=warnings,
         )
+
+    @staticmethod
+    def _should_use_retry(first: PageResult, retry: PageResult) -> bool:
+        """Accept PSM 6 only when confidence improves without losing much text."""
+        first_confidence = first.metrics.mean_ocr_confidence
+        retry_confidence = retry.metrics.mean_ocr_confidence
+        if (
+            not retry.blocks
+            or first_confidence is None
+            or retry_confidence is None
+            or retry_confidence < first_confidence + 3.0
+        ):
+            return False
+
+        first_word_count = sum(len(block.text.split()) for block in first.blocks)
+        retry_word_count = sum(len(block.text.split()) for block in retry.blocks)
+        minimum_word_count = max(1, math.ceil(first_word_count * 0.8))
+        return retry_word_count >= minimum_word_count
 
     def _read_image_dimensions(self, path: Path) -> tuple[int, int]:
         try:
