@@ -232,7 +232,7 @@ def test_same_source_filename_gets_distinct_job_outputs_and_identifiers(tmp_path
         workspace.save_page_structure(1, [])
         job = _dummy_job(tmp_path, name="same-book.pdf", job_id=job_id)
         _save_stitched_checkpoint(workspace, 1)
-    output = generate_job_epub(job, workspace, total_pages=1)
+        output = generate_job_epub(job, workspace, total_pages=1)
         with zipfile.ZipFile(output) as archive:
             opf = ET.fromstring(archive.read("OEBPS/content.opf"))
             identifier = opf.findtext("opf:metadata/dc:identifier", namespaces=NS)
