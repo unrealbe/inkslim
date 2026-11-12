@@ -268,14 +268,17 @@ class PdfOcrJobProcessor:
                     workspace.load_page_structure(page_number) is not None
                     for page_number in range(1, total_pages + 1)
                 )
-                if (
+                rebuild_structure = (
                     structure is None
                     or structure.get("total_pages") != total_pages
+                    or structure.get("paragraph_stitching_schema_version") != 1
                     or not has_all_page_structures
-                ):
+                )
+                if rebuild_structure:
                     structure, page_annotations = detect_document_structure(
                         stitched_pages, total_pages=total_pages
                     )
+                    structure["paragraph_stitching_schema_version"] = 1
                     workspace.save_structure_analysis(structure)
                 else:
                     page_annotations = {}
@@ -284,7 +287,7 @@ class PdfOcrJobProcessor:
                         raise JobCancelled(
                             f"Cancellation requested before structure page {page_number}"
                         )
-                    if workspace.load_page_structure(page_number) is not None:
+                    if not rebuild_structure and workspace.load_page_structure(page_number) is not None:
                         continue
                     annotations = page_annotations.get(page_number, [])
                     workspace.save_page_structure(page_number, annotations)
