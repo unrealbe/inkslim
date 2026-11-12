@@ -278,8 +278,6 @@ class PdfOcrJobProcessor:
                     structure, page_annotations = detect_document_structure(
                         stitched_pages, total_pages=total_pages
                     )
-                    structure["paragraph_stitching_schema_version"] = 1
-                    workspace.save_structure_analysis(structure)
                 else:
                     page_annotations = {}
                 for page_number in range(1, total_pages + 1):
@@ -291,6 +289,9 @@ class PdfOcrJobProcessor:
                         continue
                     annotations = page_annotations.get(page_number, [])
                     workspace.save_page_structure(page_number, annotations)
+                if rebuild_structure:
+                    structure["paragraph_stitching_schema_version"] = 1
+                    workspace.save_structure_analysis(structure)
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after document structure detection")
             output_path = generate_job_epub(job, workspace, total_pages=total_pages, store=store)
