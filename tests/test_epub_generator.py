@@ -388,6 +388,7 @@ def test_cached_epub_is_rebuilt_when_pdf_metadata_changes(tmp_path):
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
+    _save_stitched_checkpoint(workspace, 1)
     first_epub = generate_job_epub(job, workspace, total_pages=1)
     with zipfile.ZipFile(first_epub) as archive:
         first_opf = ET.fromstring(archive.read("OEBPS/content.opf"))
@@ -440,6 +441,7 @@ def test_cached_epub_is_rebuilt_when_paragraph_layout_is_outdated(tmp_path):
             target.writestr(name, content)
     outdated.replace(epub_path)
 
+    _save_stitched_checkpoint(workspace, 1)
     rebuilt = generate_job_epub(job, workspace, total_pages=1)
 
     with zipfile.ZipFile(rebuilt) as archive:
