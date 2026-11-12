@@ -100,3 +100,25 @@ def test_does_not_stitch_when_either_bbox_is_missing():
     )
     assert analysis["stitched_count"] == 0
     assert pages[2][0]["text"] == "continuation"
+
+
+
+def test_workspace_stitched_paragraph_checkpoint_roundtrip(tmp_path):
+    from conversion.storage import JobWorkspace
+
+    workspace = JobWorkspace(tmp_path / "stitching-job")
+    workspace.create()
+    pages = {
+        1: [paragraph(1, "joined text", (0.1, 0.7, 0.9, 0.9))],
+        2: [],
+    }
+    analysis = {
+        "schema_version": 1,
+        "total_pages": 2,
+        "stitched_count": 1,
+        "stitched": [{"from_page": 1, "to_page": 2, "paragraph_index": 1}],
+    }
+    workspace.save_stitched_paragraphs(pages, analysis)
+    restored = workspace.load_stitched_paragraphs(2)
+    assert restored == (pages, analysis)
+    assert workspace.load_stitched_paragraphs(3) is None
