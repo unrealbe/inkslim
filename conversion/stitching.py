@@ -52,7 +52,8 @@ def _can_stitch(
         return False
     # Image-heavy, empty, or non-text pages are hard boundaries.
     for page in (previous_page, following_page):
-        if page.get("decision") == "empty" or page.get("image_count", 0) != 0:
+        image_count = page.get("image_count")
+        if page.get("decision") == "empty" or type(image_count) is not int or image_count != 0:
             return False
     return True
 
@@ -76,17 +77,28 @@ def stitch_page_paragraphs(
 
     pages = {page: deepcopy(cleaned_pages.get(page, [])) for page in range(1, total_pages + 1)}
     stitched: list[dict[str, Any]] = []
+    carry_root: dict[str, Any] | None = None
+    carry_fragment: dict[str, Any] | None = None
     for page_number in range(1, total_pages):
         current = pages[page_number]
         following = pages[page_number + 1]
-        if not current or not following:
+        if not following:
+            carry_root = None
+            carry_fragment = None
+            continue
+        if current:
+            first = current[-1]
+            boundary_fragment = first
+        elif carry_root is not None and carry_fragment is not None:
+            first = carry_root
+            boundary_fragment = carry_fragment
+        else:
             continue
         if _can_stitch(
-            current[-1], following[0],
+            boundary_fragment, following[0],
             page_context.get(page_number, {}),
             page_context.get(page_number + 1, {}),
         ):
-            first = current[-1]
             second = following.pop(0)
             first_text = str(first["text"]).strip()
             second_text = str(second["text"]).strip()
@@ -108,6 +120,11 @@ def stitch_page_paragraphs(
                 "to_page": page_number + 1,
                 "paragraph_index": first.get("paragraph_index"),
             })
+            carry_root = first
+            carry_fragment = second
+        else:
+            carry_root = None
+            carry_fragment = None
 
     analysis = {
         "schema_version": SCHEMA_VERSION,
