@@ -15,7 +15,7 @@ from ..language import epub_language_for_selection, infer_document_language
 from ..models import Job, JobStatus
 from ..storage import JobStore, JobWorkspace
 from ..worker import JobCancelled, JobProcessingError
-from .builder import EpubBuildError, build_epub, clean_text
+from .builder import EPUB_LAYOUT_VERSION, EpubBuildError, build_epub, clean_text
 from .image_embedding import (
     EpubImageEmbeddingError,
     embed_pdf_images,
@@ -62,6 +62,35 @@ def _read_pdf_metadata(path: str | Path) -> dict[str, str]:
         logger.debug("Could not read optional PDF metadata from %s", path, exc_info=True)
         return {}
 
+
+
+def _epub_layout_matches(path: Path) -> bool:
+    """Return whether a cached EPUB uses the current paragraph/typography rules."""
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            stylesheet = archive.read("OEBPS/styles.css").decode("utf-8")
+        return f"Inkslim EPUB layout version: {EPUB_LAYOUT_VERSION}" in stylesheet
+    except (OSError, KeyError, zipfile.BadZipFile, UnicodeDecodeError):
+        return False
+
+
+def _exclude_cover_ocr_text(
+    cleaned_pages: dict[int, list[dict]],
+    page_classifications: dict[int, dict],
+) -> tuple[dict[int, list[dict]], list[int]]:
+    """Omit OCR text from an image-dominated cover page, keeping its image intact."""
+    cover = page_classifications.get(1, {})
+    signals = cover.get("signals", {})
+    if not (
+        cover.get("type") == "cover_candidate"
+        and signals.get("text_source") == "tesseract"
+        and signals.get("text_word_count", 0) < 20
+        and signals.get("largest_image_coverage", 0.0) >= 0.45
+        and cover.get("confidence", 0.0) >= 0.75
+        and len(cleaned_pages) > 1
+    ):
+        return cleaned_pages, []
+    return {page: paragraphs for page, paragraphs in cleaned_pages.items() if page != 1}, [1]
 
 
 def _epub_metadata_matches(path: Path, title: str, author: str | None) -> bool:
@@ -132,6 +161,7 @@ def generate_job_epub(
         is_valid_epub(destination)
         and embedded_image_count(destination) == expected_images
         and (expected_images == 0 or has_current_image_layout(destination))
+        and _epub_layout_matches(destination)
         and workspace.load_document_language_analysis() is not None
         and _epub_metadata_matches(destination, resolved_title, resolved_author)
     ):
@@ -156,13 +186,25 @@ def generate_job_epub(
         number: workspace.load_page_structure(number) or []
         for number in range(1, total_pages + 1)
     }
+    page_classifications = (
+        _page_content_classifications(workspace, total_pages) if expected_images else {}
+    )
+    epub_pages, omitted_cover_pages = _exclude_cover_ocr_text(
+        cleaned_pages, page_classifications
+    )
+    if omitted_cover_pages:
+        logger.info(
+            "Omitting low-volume OCR text from image-dominated cover page(s) %s for job %s",
+            omitted_cover_pages, job.id,
+        )
+
     language_pages = {
         page_number: " ".join(
             str(paragraph.get("text", "")).strip()
             for paragraph in paragraphs
             if str(paragraph.get("text", "")).strip()
         )
-        for page_number, paragraphs in cleaned_pages.items()
+        for page_number, paragraphs in epub_pages.items()
     }
     document_language, language_diagnostics = infer_document_language(
         language_pages,
@@ -171,7 +213,7 @@ def generate_job_epub(
     workspace.save_document_language_analysis(language_diagnostics)
 
     doc = build_document_model(
-        cleaned_pages, structure_analysis, page_annotations, total_pages=total_pages,
+        epub_pages, structure_analysis, page_annotations, total_pages=total_pages,
         title=resolved_title,
         language=document_language,
         author=resolved_author,
@@ -192,10 +234,7 @@ def generate_job_epub(
                 destination,
                 workspace,
                 total_pages=total_pages,
-                page_classifications=(
-                    _page_content_classifications(workspace, total_pages)
-                    if expected_images else None
-                ),
+                page_classifications=page_classifications or None,
             )
         except OSError:
             destination.unlink(missing_ok=True)
