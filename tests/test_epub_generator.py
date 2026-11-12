@@ -37,6 +37,22 @@ def _dummy_job(tmp_path, name="test-book.pdf", language="eng", job_id="11111111-
     )
 
 
+
+def _save_stitched_checkpoint(workspace, total_pages):
+    pages = {
+        page: workspace.load_page_cleaned_paragraphs(page) or []
+        for page in range(1, total_pages + 1)
+    }
+    workspace.save_stitched_paragraphs(
+        pages,
+        {
+            "schema_version": 1,
+            "total_pages": total_pages,
+            "stitched_count": 0,
+            "stitched": [],
+        },
+    )
+
 def test_generate_job_epub_with_multiple_chapters(tmp_path):
     workspace = JobWorkspace(tmp_path / "job-multi")
     workspace.create()
@@ -60,6 +76,8 @@ def test_generate_job_epub_with_multiple_chapters(tmp_path):
     workspace.save_page_structure(2, [{"paragraph_index": 1, "text": "CHAPTER 2: DE REIS", "kind": "chapter_heading", "chapter_start": True}])
 
     job = _dummy_job(tmp_path, name="avontuur.pdf", language="nld")
+    _save_stitched_checkpoint(workspace, 2)
+    _save_stitched_checkpoint(workspace, 2)
     epub_path = generate_job_epub(job, workspace, total_pages=2)
 
     assert epub_path.is_file()
@@ -107,6 +125,8 @@ def test_generate_job_epub_fallback_without_chapters(tmp_path):
     workspace.save_page_structure(1, [])
 
     job = _dummy_job(tmp_path, name="essay.pdf", language="eng")
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     assert epub_path.is_file()
@@ -139,6 +159,8 @@ def test_generate_job_epub_unicode_and_special_characters(tmp_path):
     workspace.save_page_structure(1, [])
 
     job = _dummy_job(tmp_path, name="special-chars.pdf", language="eng")
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     assert is_valid_epub(epub_path)
@@ -163,11 +185,13 @@ def test_generate_job_epub_reuses_existing_valid_file(tmp_path):
     workspace.save_page_structure(1, [])
 
     job = _dummy_job(tmp_path, name="reuse.pdf")
+    _save_stitched_checkpoint(workspace, 1)
     first_path = generate_job_epub(job, workspace, total_pages=1)
     original_mtime = first_path.stat().st_mtime_ns
     original_bytes = first_path.read_bytes()
 
     # Call again: should return same file without rewriting
+    _save_stitched_checkpoint(workspace, 1)
     second_path = generate_job_epub(job, workspace, total_pages=1)
     assert second_path == first_path
     assert second_path.stat().st_mtime_ns == original_mtime
@@ -207,7 +231,8 @@ def test_same_source_filename_gets_distinct_job_outputs_and_identifiers(tmp_path
         })
         workspace.save_page_structure(1, [])
         job = _dummy_job(tmp_path, name="same-book.pdf", job_id=job_id)
-        output = generate_job_epub(job, workspace, total_pages=1)
+        _save_stitched_checkpoint(workspace, 1)
+    output = generate_job_epub(job, workspace, total_pages=1)
         with zipfile.ZipFile(output) as archive:
             opf = ET.fromstring(archive.read("OEBPS/content.opf"))
             identifier = opf.findtext("opf:metadata/dc:identifier", namespaces=NS)
@@ -241,6 +266,8 @@ def test_epub_language_is_inferred_from_reconstructed_book_text(tmp_path):
     })
 
     job = _dummy_job(tmp_path, name="english-book.pdf", language="eng")
+    _save_stitched_checkpoint(workspace, 2)
+    _save_stitched_checkpoint(workspace, 2)
     epub_path = generate_job_epub(job, workspace, total_pages=2)
 
     with zipfile.ZipFile(epub_path, "r") as archive:
@@ -273,6 +300,8 @@ def test_epub_metadata_uses_pdf_metadata_before_filename_fallback(tmp_path):
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     with zipfile.ZipFile(epub_path) as archive:
@@ -299,6 +328,8 @@ def test_epub_metadata_falls_back_to_title_author_filename_pattern(tmp_path):
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     with zipfile.ZipFile(epub_path) as archive:
@@ -327,6 +358,8 @@ def test_epub_metadata_sanitizes_pdf_title_and_author_before_fallback(tmp_path):
         pdf.save(source)
 
     job = _dummy_job(tmp_path, name=source.name)
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     with zipfile.ZipFile(epub_path) as archive:
@@ -386,6 +419,8 @@ def test_cached_epub_is_rebuilt_when_paragraph_layout_is_outdated(tmp_path):
     })
     workspace.save_page_structure(1, [])
     job = _dummy_job(tmp_path, name="old-layout.pdf")
+    _save_stitched_checkpoint(workspace, 1)
+    _save_stitched_checkpoint(workspace, 1)
     epub_path = generate_job_epub(job, workspace, total_pages=1)
 
     # Simulate an EPUB produced by the previous stylesheet version.
