@@ -256,7 +256,7 @@ class PdfOcrJobProcessor:
                     )
                     workspace.save_stitched_paragraphs(stitched_pages, stitching_analysis)
                 else:
-                    stitched_pages, stitching_analysis = stitched_checkpoint
+                    stitched_pages, _stitching_analysis = stitched_checkpoint
 
                 if store.is_cancel_requested(job.id):
                     raise JobCancelled("Cancellation requested after paragraph stitching")
