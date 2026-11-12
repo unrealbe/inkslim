@@ -228,3 +228,45 @@ def test_retry_failure_preserves_first_ocr_result(page_image, monkeypatch):
     assert result.blocks[0].text == "originele tekst"
     assert result.metrics.mean_ocr_confidence == 55.0
     assert result.warnings == ["LOW_OCR_CONFIDENCE", "OCR_RETRY_PSM_6_FAILED"]
+
+
+
+def test_retry_uses_only_remaining_page_timeout(page_image, monkeypatch):
+    first = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="55.0", text="een twee drie vier vijf"),
+        stderr="",
+    )
+    retry = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="82.0", text="een twee drie vier vijf"),
+        stderr="",
+    )
+    mocked = Mock(side_effect=[first, retry])
+    monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
+    monotonic = Mock(side_effect=[100.0, 108.0])
+    monkeypatch.setattr("conversion.ocr.tesseract.time.monotonic", monotonic)
+
+    result = TesseractOcrEngine(timeout_seconds=20).recognize(page_image, ["nld"])
+
+    assert result.metrics.mean_ocr_confidence == 82.0
+    assert mocked.call_args_list[0].kwargs["timeout"] == 20
+    assert mocked.call_args_list[1].kwargs["timeout"] == 12.0
+
+
+def test_retry_is_skipped_when_page_timeout_budget_is_exhausted(page_image, monkeypatch):
+    first = subprocess.CompletedProcess(
+        args=["tesseract"], returncode=0,
+        stdout=TSV_HEADER + word(confidence="55.0", text="originele tekst"),
+        stderr="",
+    )
+    mocked = Mock(return_value=first)
+    monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
+    monotonic = Mock(side_effect=[100.0, 120.0])
+    monkeypatch.setattr("conversion.ocr.tesseract.time.monotonic", monotonic)
+
+    result = TesseractOcrEngine(timeout_seconds=20).recognize(page_image, ["nld"])
+
+    assert result.blocks[0].text == "originele tekst"
+    assert mocked.call_count == 1
+    assert "OCR_RETRY_PSM_6_SKIPPED_TIMEOUT_BUDGET" in result.warnings
