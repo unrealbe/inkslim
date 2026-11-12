@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import subprocess
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Protocol
@@ -89,6 +90,7 @@ class TesseractOcrEngine:
         language_argument = self._language_argument(languages)
         width, height = self._read_image_dimensions(path)
 
+        page_deadline = time.monotonic() + self.timeout_seconds
         first = self._recognize_with_psm(
             path, language_argument, page_number=page_number,
             width=width, height=height, psm=3,
@@ -104,10 +106,16 @@ class TesseractOcrEngine:
         # A second layout analysis is deliberately limited to low-confidence
         # pages. The first result remains the fallback if retry fails or is
         # materially less complete.
+        remaining_timeout = page_deadline - time.monotonic()
+        if remaining_timeout <= 0:
+            first.warnings.append("OCR_RETRY_PSM_6_SKIPPED_TIMEOUT_BUDGET")
+            return first
+
         try:
             retry = self._recognize_with_psm(
                 path, language_argument, page_number=page_number,
                 width=width, height=height, psm=6,
+                timeout_seconds=remaining_timeout,
             )
         except OcrError:
             first.warnings.append("OCR_RETRY_PSM_6_FAILED")
@@ -129,6 +137,7 @@ class TesseractOcrEngine:
         width: int,
         height: int,
         psm: int,
+        timeout_seconds: float | None = None,
     ) -> PageResult:
         command = [
             self.executable,
@@ -148,7 +157,7 @@ class TesseractOcrEngine:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.timeout_seconds,
+                timeout=self.timeout_seconds if timeout_seconds is None else timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
             raise OcrError("OCR_TIMEOUT", "Text recognition exceeded the page time limit.") from exc
