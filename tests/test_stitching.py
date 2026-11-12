@@ -90,16 +90,44 @@ def test_image_or_empty_page_is_a_hard_boundary():
 
 
 def test_does_not_stitch_when_either_bbox_is_missing():
-    first = paragraph(1, "unfinished phrase", (0.1, 0.72, 0.9, 0.94))
-    second = paragraph(1, "continuation", (0.1, 0.04, 0.9, 0.22))
-    second["bbox"] = None
+    for missing_page in (1, 2):
+        first = paragraph(1, "unfinished phrase", (0.1, 0.72, 0.9, 0.94))
+        second = paragraph(1, "continuation", (0.1, 0.04, 0.9, 0.22))
+        if missing_page == 1:
+            first["bbox"] = None
+        else:
+            second["bbox"] = None
+        pages, analysis = stitch_page_paragraphs(
+            {1: [first], 2: [second]},
+            {1: context(), 2: context()},
+            total_pages=2,
+        )
+        assert analysis["stitched_count"] == 0
+        assert pages[1][0]["text"] == "unfinished phrase"
+        assert pages[2][0]["text"] == "continuation"
+
+
+def test_unknown_image_count_is_a_hard_boundary():
     pages, analysis = stitch_page_paragraphs(
-        {1: [first], 2: [second]},
-        {1: context(), 2: context()},
-        total_pages=2,
+        {1: [paragraph(1, "unfinished phrase", (0.1, 0.72, 0.9, 0.94))],
+         2: [paragraph(1, "continuation", (0.1, 0.04, 0.9, 0.22))]},
+        {1: {"decision": "use_native"}, 2: context()}, total_pages=2,
     )
     assert analysis["stitched_count"] == 0
-    assert pages[2][0]["text"] == "continuation"
+
+
+def test_stitches_continuation_spanning_three_pages():
+    pages, analysis = stitch_page_paragraphs(
+        {1: [paragraph(1, "the long paragraph begins", (0.1, 0.72, 0.9, 0.94))],
+         2: [paragraph(1, "continues on the second page", (0.1, 0.04, 0.9, 0.94))],
+         3: [paragraph(1, "and finishes on the third page.", (0.1, 0.04, 0.9, 0.22))]},
+        {1: context(), 2: context(), 3: context()}, total_pages=3,
+    )
+    assert pages[1][0]["text"] == (
+        "the long paragraph begins continues on the second page and finishes on the third page."
+    )
+    assert pages[2] == [] and pages[3] == []
+    assert analysis["stitched_count"] == 2
 
 
 
