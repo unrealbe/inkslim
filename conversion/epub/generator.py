@@ -170,13 +170,13 @@ def generate_job_epub(
     if store and store.is_cancel_requested(job.id):
         raise JobCancelled("Cancellation requested before EPUB generation")
 
-    cleaned_pages: dict[int, list[dict]] = {}
-    for page_number in range(1, total_pages + 1):
-        paragraphs = workspace.load_page_cleaned_paragraphs(page_number)
-        if paragraphs is None:
-            raise JobProcessingError("CLEANED_TEXT_CHECKPOINT_MISSING",
-                                     f"Cleaned text for page {page_number} is missing.")
-        cleaned_pages[page_number] = paragraphs
+    stitched_checkpoint = workspace.load_stitched_paragraphs(total_pages)
+    if stitched_checkpoint is None:
+        raise JobProcessingError(
+            "STITCHED_TEXT_CHECKPOINT_MISSING",
+            "Document-level paragraph stitching data is missing; the job must be processed again.",
+        )
+    cleaned_pages, _stitching_analysis = stitched_checkpoint
 
     structure_analysis = workspace.load_structure_analysis()
     if structure_analysis is None:
