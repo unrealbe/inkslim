@@ -220,10 +220,6 @@ def test_retry_failure_preserves_first_ocr_result(page_image, monkeypatch):
         stdout=TSV_HEADER + word(confidence="55.0", text="originele tekst"),
         stderr="",
     )
-    def fail_retry(*args, **kwargs):
-        if kwargs:
-            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
-        return first
     mocked = Mock(side_effect=[first, subprocess.TimeoutExpired(["tesseract"], 120)])
     monkeypatch.setattr("conversion.ocr.tesseract.subprocess.run", mocked)
 
