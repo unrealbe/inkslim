@@ -89,6 +89,47 @@ class TesseractOcrEngine:
         language_argument = self._language_argument(languages)
         width, height = self._read_image_dimensions(path)
 
+        first = self._recognize_with_psm(
+            path, language_argument, page_number=page_number,
+            width=width, height=height, psm=3,
+        )
+        first_confidence = first.metrics.mean_ocr_confidence
+        if (
+            not first.blocks
+            or first_confidence is None
+            or first_confidence >= self.high_confidence_threshold
+        ):
+            return first
+
+        # A second layout analysis is deliberately limited to low-confidence
+        # pages. The first result remains the fallback if retry fails or is
+        # materially less complete.
+        try:
+            retry = self._recognize_with_psm(
+                path, language_argument, page_number=page_number,
+                width=width, height=height, psm=6,
+            )
+        except OcrError:
+            first.warnings.append("OCR_RETRY_PSM_6_FAILED")
+            return first
+
+        if self._should_use_retry(first, retry):
+            retry.warnings.append("OCR_RETRY_PSM_6_SELECTED")
+            return retry
+
+        first.warnings.append("OCR_RETRY_PSM_6_NOT_SELECTED")
+        return first
+
+    def _recognize_with_psm(
+        self,
+        path: Path,
+        language_argument: str,
+        *,
+        page_number: int,
+        width: int,
+        height: int,
+        psm: int,
+    ) -> PageResult:
         command = [
             self.executable,
             str(path),
@@ -96,7 +137,7 @@ class TesseractOcrEngine:
             "-l",
             language_argument,
             "--psm",
-            "3",
+            str(psm),
             "tsv",
         ]
         try:
@@ -152,6 +193,24 @@ class TesseractOcrEngine:
             metrics=PageMetrics(mean_ocr_confidence=mean_confidence),
             warnings=warnings,
         )
+
+    @staticmethod
+    def _should_use_retry(first: PageResult, retry: PageResult) -> bool:
+        """Accept PSM 6 only when confidence improves without losing much text."""
+        first_confidence = first.metrics.mean_ocr_confidence
+        retry_confidence = retry.metrics.mean_ocr_confidence
+        if (
+            not retry.blocks
+            or first_confidence is None
+            or retry_confidence is None
+            or retry_confidence < first_confidence + 3.0
+        ):
+            return False
+
+        first_word_count = sum(len(block.text.split()) for block in first.blocks)
+        retry_word_count = sum(len(block.text.split()) for block in retry.blocks)
+        minimum_word_count = max(1, math.ceil(first_word_count * 0.8))
+        return retry_word_count >= minimum_word_count
 
     def _read_image_dimensions(self, path: Path) -> tuple[int, int]:
         try:
