@@ -75,6 +75,8 @@ def test_rejects_top_edge_or_extreme_margin_text():
     pages = {1: [paragraph(1, "CHAPTER 1", bbox=(0.1, 0.0, 0.9, 0.015))]}
     analysis, annotations = detect_document_structure(pages, total_pages=1)
     assert analysis["chapter_count"] == 0
+
+
 def test_contents_page_is_excluded_and_cannot_create_false_chapters():
     pages = {
         1: [
