@@ -163,7 +163,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
+            if value.get("schema_version") not in {1, 2} or value.get("page_number") != page_number:
                 raise ValueError("Line checkpoint metadata does not match its page")
             lines = value.get("lines")
             if not isinstance(lines, list) or any(not isinstance(line, dict) for line in lines):
@@ -378,7 +378,7 @@ class JobWorkspace:
         return self.output_dir / "marginalia-analysis.json"
 
     def save_marginalia_analysis(self, analysis: dict[str, Any]) -> Path:
-        if analysis.get("schema_version") != 2:
+        if analysis.get("schema_version") not in {1, 2}:
             raise ValueError("Unsupported marginalia analysis schema version")
         path = self.marginalia_analysis_path
         self._atomic_json(path, analysis)
