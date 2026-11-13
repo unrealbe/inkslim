@@ -271,7 +271,10 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
+            if (
                 value.get("schema_version") not in {1, 2}
+                or value.get("page_number") != page_number
+            ):
                 raise ValueError("Paragraph checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             if not isinstance(paragraphs, list) or any(
@@ -317,7 +320,10 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
+            if (
                 value.get("schema_version") not in {1, 2}
+                or value.get("page_number") != page_number
+            ):
                 raise ValueError("Dehyphenation checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             removed = value.get("removed_soft_hyphens")
@@ -359,7 +365,10 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
+            if (
                 value.get("schema_version") not in {1, 2}
+                or value.get("page_number") != page_number
+            ):
                 raise ValueError("Hyphenation checkpoint metadata does not match its page")
             candidates = value.get("candidates")
             if not isinstance(candidates, list) or any(
@@ -389,7 +398,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-                value.get("schema_version") not in {1, 2}
+            if value.get("schema_version") not in {1, 2}:
                 raise ValueError("Marginalia analysis checkpoint is invalid")
             if type(value.get("total_pages")) is not int or value["total_pages"] < 1:
                 raise ValueError("Marginalia analysis page count is invalid")
@@ -576,7 +585,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-                value.get("schema_version") not in {1, 2}
+            if value.get("schema_version") not in {1, 2}:
                 raise ValueError("Document language analysis checkpoint is invalid")
             return value
         except FileNotFoundError:
