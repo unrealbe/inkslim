@@ -69,7 +69,11 @@ def _page_role(
     if (has_contents_label and toc_entries >= 2) or (
         toc_entries >= 4 and toc_entries / len(texts) >= 0.6
     ):
-        return "contents", "contents_heading_and_page_numbered_entries" if has_contents_label else "repeated_page_numbered_entries"
+        reason = (
+            "contents_heading_and_page_numbered_entries"
+            if has_contents_label else "repeated_page_numbered_entries"
+        )
+        return "contents", reason
 
     joined = " ".join(texts).casefold()
     signals = {signal for signal in _COPYRIGHT_SIGNALS if signal in joined}
