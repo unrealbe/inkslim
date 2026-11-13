@@ -243,7 +243,14 @@ def build_document_model(
     document_chapters: list[DocumentChapter] = []
     current_chapter: DocumentChapter | None = None
 
+    excluded_pages = {
+        page for page in structure_analysis.get("excluded_pages", [])
+        if type(page) is int and 1 <= page <= total_pages
+    }
+
     for page_number in range(1, total_pages + 1):
+        if page_number in excluded_pages:
+            continue
         paragraphs = cleaned_pages.get(page_number, [])
         for paragraph in paragraphs:
             p_index = paragraph.get("paragraph_index")

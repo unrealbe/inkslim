@@ -19,7 +19,10 @@ from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
 from ..pagination import detect_repeated_marginalia
 from ..stitching import stitch_page_paragraphs
-from ..structure import detect_document_structure
+from ..structure import (
+    SCHEMA_VERSION as STRUCTURE_SCHEMA_VERSION,
+    detect_document_structure,
+)
 from ..epub.generator import generate_job_epub
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
@@ -271,6 +274,7 @@ class PdfOcrJobProcessor:
                 rebuild_structure = (
                     structure is None
                     or structure.get("total_pages") != total_pages
+                    or structure.get("schema_version") != STRUCTURE_SCHEMA_VERSION
                     or structure.get("paragraph_stitching_schema_version") != 1
                     or not has_all_page_structures
                 )

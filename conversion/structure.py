@@ -10,7 +10,7 @@ import re
 import unicodedata
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _CHAPTER = re.compile(
     r"^(?:chapter|hoofdstuk|chapitre|kapitel|deel|part|partie|teil)\s+"
     r"(?:\d{1,3}|[ivxlcdm]{1,12}|[a-z]+)"
@@ -24,6 +24,67 @@ _SECTION = {
 }
 _NUMBERED = re.compile(r"^(\d{1,3}(?:\.\d{1,2}){0,2})\s+(.{2,75})$")
 _TERMINAL = re.compile(r"[.!?…]$")
+_TOC_LABELS = {
+    "contents", "table of contents", "content", "inhoud", "inhoudsopgave",
+    "sommaire", "table des matieres", "inhalt", "inhaltsverzeichnis", "indice",
+}
+_TOC_ENTRY = re.compile(
+    r"^.{3,100}?(?:\.{2,}|…+|\s+)\s*(?:\d{1,4}|[ivxlcdm]{1,8})$",
+    re.IGNORECASE,
+)
+_COPYRIGHT_SIGNALS = (
+    "copyright", "all rights reserved", "isbn", "published by",
+    "first published", "edition", "©",
+)
+
+
+def _page_role(
+    paragraphs: list[dict[str, Any]], *, page_number: int, total_pages: int
+) -> tuple[str | None, str | None]:
+    """Classify only highly recognizable early contents/copyright pages.
+
+    These pages are omitted from the reading flow because EPUB navigation is
+    generated from the detected structure. Ambiguous pages remain untouched.
+    """
+    early_page_limit = min(10, max(1, (total_pages + 4) // 5))
+    if page_number > early_page_limit:
+        return None, None
+
+    texts = [
+        " ".join(str(item.get("text", "")).split()).strip()
+        for item in paragraphs
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+    ]
+    texts = [item for item in texts if item]
+    if not texts:
+        return None, None
+
+    normalized = {_normalize(item).strip(" :.-") for item in texts}
+    has_contents_label = bool(normalized & _TOC_LABELS)
+    toc_entries = sum(
+        1 for item in texts
+        if len(item) <= 120 and not _TERMINAL.search(item)
+        and _TOC_ENTRY.fullmatch(item)
+    )
+    if (has_contents_label and toc_entries >= 2) or (
+        toc_entries >= 4 and toc_entries / len(texts) >= 0.6
+    ):
+        reason = (
+            "contents_heading_and_page_numbered_entries"
+            if has_contents_label else "repeated_page_numbered_entries"
+        )
+        return "contents", reason
+
+    joined = " ".join(texts).casefold()
+    signals = {signal for signal in _COPYRIGHT_SIGNALS if signal in joined}
+    word_count = sum(len(item.split()) for item in texts)
+    if word_count <= 120 and (
+        len(signals) >= 2
+        or ("all rights reserved" in signals and "isbn" in signals)
+    ):
+        return "copyright", "multiple_copyright_metadata_signals"
+
+    return None, None
 
 
 def _bbox(paragraph: dict[str, Any]) -> tuple[float, float, float, float] | None:
@@ -103,9 +164,23 @@ def detect_document_structure(
     annotations: dict[int, list[dict[str, Any]]] = {}
     chapters: list[dict[str, Any]] = []
     heading_count = 0
+    page_roles: dict[str, str] = {}
+    excluded_pages: list[int] = []
+    exclusion_reasons: dict[str, str] = {}
     for page_number in range(1, total_pages + 1):
+        page_paragraphs = pages.get(page_number, [])
+        role, reason = _page_role(
+            page_paragraphs, page_number=page_number, total_pages=total_pages
+        )
+        if role is not None:
+            page_roles[str(page_number)] = role
+            excluded_pages.append(page_number)
+            if reason:
+                exclusion_reasons[str(page_number)] = reason
+            annotations[page_number] = []
+            continue
         page_annotations = []
-        for paragraph in pages.get(page_number, []):
+        for paragraph in page_paragraphs:
             annotation = _classify(paragraph)
             if annotation is None:
                 continue
@@ -127,6 +202,9 @@ def detect_document_structure(
     analysis = {
         "schema_version": SCHEMA_VERSION,
         "total_pages": total_pages,
+        "page_roles": page_roles,
+        "excluded_pages": excluded_pages,
+        "exclusion_reasons": exclusion_reasons,
         "heading_count": heading_count,
         "chapter_count": len(chapters),
         "chapters": chapters,

@@ -434,3 +434,43 @@ def test_workspace_quarantines_document_model_with_unhashable_schema_version(tmp
     )
     assert workspace.load_document_model() is None
     assert not workspace.document_model_path.exists()
+
+
+def test_build_document_model_omits_only_explicitly_excluded_frontmatter_pages():
+    cleaned_pages = {
+        1: [_para(0, "Contents"), _para(1, "CHAPTER 1 ........ 5")],
+        2: [_para(0, "CHAPTER 1"), _para(1, "The actual story begins here.")],
+    }
+    structure_analysis = {
+        "schema_version": 2,
+        "total_pages": 2,
+        "heading_count": 1,
+        "chapter_count": 1,
+        "excluded_pages": [1],
+        "chapters": [{
+            "chapter_index": 1,
+            "page_number": 2,
+            "paragraph_index": 0,
+            "title": "CHAPTER 1",
+        }],
+    }
+    page_annotations = {
+        1: [],
+        2: [{
+            "paragraph_index": 0,
+            "text": "CHAPTER 1",
+            "kind": "chapter_heading",
+            "chapter_start": True,
+        }],
+    }
+
+    doc = build_document_model(
+        cleaned_pages, structure_analysis, page_annotations,
+        total_pages=2, title="Example Book",
+    )
+
+    assert len(doc.chapters) == 1
+    assert doc.chapters[0].title == "CHAPTER 1"
+    assert [item.text for item in doc.chapters[0].paragraphs] == [
+        "The actual story begins here."
+    ]

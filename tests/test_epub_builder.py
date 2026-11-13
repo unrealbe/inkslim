@@ -162,6 +162,6 @@ def test_paragraph_styles_separate_paragraphs_without_first_line_indent(tmp_path
     path = build(tmp_path)
     with zipfile.ZipFile(path) as archive:
         stylesheet = archive.read("OEBPS/styles.css").decode("utf-8")
-    assert "Inkslim EPUB layout version: 3" in stylesheet
+    assert "Inkslim EPUB layout version: 4" in stylesheet
     assert "p { margin: 0 0 0.8em; text-indent: 0; }" in stylesheet
     assert "text-indent: 1.2em" not in stylesheet

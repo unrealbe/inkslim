@@ -446,7 +446,7 @@ def test_cached_epub_is_rebuilt_when_paragraph_layout_is_outdated(tmp_path):
 
     with zipfile.ZipFile(rebuilt) as archive:
         stylesheet = archive.read("OEBPS/styles.css").decode("utf-8")
-    assert "Inkslim EPUB layout version: 3" in stylesheet
+    assert "Inkslim EPUB layout version: 4" in stylesheet
     assert "p { margin: 0 0 0.8em; text-indent: 0; }" in stylesheet
 
 
