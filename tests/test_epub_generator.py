@@ -549,3 +549,93 @@ def test_cover_candidate_filter_requires_confident_image_extraction_and_multiple
     # A one-page cover must not become an empty document after filtering.
     one_page = {1: cleaned[1]}
     assert _exclude_cover_ocr_text(one_page, confident) == (one_page, [])
+
+
+
+def test_cross_page_stitching_and_contents_exclusion_survive_epub_generation(tmp_path):
+    """Exercise page stitching, structure detection and EPUB output as one pipeline."""
+    from conversion.stitching import stitch_page_paragraphs
+    from conversion.structure import detect_document_structure
+
+    workspace = JobWorkspace(tmp_path / "job-cross-page-regression")
+    workspace.create()
+
+    contents = [
+        _para(0, "Contents"),
+        _para(1, "4 x Pa > a x oe I z m ........ 4"),
+        _para(2, "CHAPTER 1 The Beginning ........ 5"),
+        _para(3, "CHAPTER 2 The Journey ........ 12"),
+    ]
+    page_two = [
+        _para(0, "CHAPTER 1", (0.1, 0.08, 0.9, 0.14)),
+        _para(
+            1,
+            "The fleet’s instinctive response to these delicate tremors",
+            (0.1, 0.72, 0.9, 0.94),
+        ),
+    ]
+    page_three = [
+        _para(
+            0,
+            "is to reach out and pull the ship into alignment.",
+            (0.1, 0.04, 0.9, 0.22),
+        ),
+        _para(1, "A new paragraph starts here.", (0.1, 0.3, 0.9, 0.42)),
+    ]
+    cleaned_pages = {1: contents, 2: page_two, 3: page_three}
+    for page_number, paragraphs in cleaned_pages.items():
+        workspace.save_page_cleaned_paragraphs(page_number, paragraphs)
+
+    page_context = {
+        page_number: {"decision": "use_native", "image_count": 0}
+        for page_number in range(1, 4)
+    }
+    stitched_pages, stitching_analysis = stitch_page_paragraphs(
+        cleaned_pages, page_context, total_pages=3
+    )
+    assert stitching_analysis["stitched_count"] == 1
+    assert stitched_pages[2][-1]["text"] == (
+        "The fleet’s instinctive response to these delicate tremors "
+        "is to reach out and pull the ship into alignment."
+    )
+    assert stitched_pages[3] == page_three[1:]
+
+    structure, annotations = detect_document_structure(
+        stitched_pages, total_pages=3
+    )
+    assert structure["excluded_pages"] == [1]
+    assert structure["chapter_count"] == 1
+    assert structure["chapters"][0]["title"] == "CHAPTER 1"
+    assert annotations[1] == []
+
+    workspace.save_stitched_paragraphs(stitched_pages, stitching_analysis)
+    workspace.save_structure_analysis(structure)
+    for page_number in range(1, 4):
+        workspace.save_page_structure(page_number, annotations[page_number])
+
+    job = _dummy_job(tmp_path, name="cross-page-regression.pdf", language="eng")
+    epub_path = generate_job_epub(job, workspace, total_pages=3)
+
+    assert is_valid_epub(epub_path)
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        opf = ET.fromstring(archive.read("OEBPS/content.opf"))
+        chapter_files = [
+            item.get("href")
+            for item in opf.findall("opf:manifest/opf:item", NS)
+            if item.get("media-type") == "application/xhtml+xml"
+            and item.get("href", "").startswith("chapter_")
+        ]
+        assert chapter_files == ["chapter_0001.xhtml"]
+
+        nav = archive.read("OEBPS/nav.xhtml").decode("utf-8")
+        chapter = ET.fromstring(archive.read("OEBPS/chapter_0001.xhtml"))
+        paragraphs = chapter.findall(".//x:p", NS)
+        paragraph_texts = ["".join(node.itertext()) for node in paragraphs]
+
+    assert "4 x Pa > a x oe I z m" not in nav
+    assert "CHAPTER 2 The Journey" not in nav
+    assert paragraph_texts == [
+        "The fleet’s instinctive response to these delicate tremors "
+        "is to reach out and pull the ship into alignment.",
+        "A new paragraph starts here.",
+    ]
