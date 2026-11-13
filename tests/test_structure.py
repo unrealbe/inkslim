@@ -75,3 +75,75 @@ def test_rejects_top_edge_or_extreme_margin_text():
     pages = {1: [paragraph(1, "CHAPTER 1", bbox=(0.1, 0.0, 0.9, 0.015))]}
     analysis, annotations = detect_document_structure(pages, total_pages=1)
     assert analysis["chapter_count"] == 0
+def test_contents_page_is_excluded_and_cannot_create_false_chapters():
+    pages = {
+        1: [
+            paragraph(0, "Contents"),
+            paragraph(1, "4 x Pa > a x oe I z m ........ 4"),
+            paragraph(2, "CHAPTER 1 The Beginning ........ 5"),
+            paragraph(3, "CHAPTER 2 The Journey ........ 12"),
+        ],
+        5: [
+            paragraph(0, "CHAPTER 1"),
+            paragraph(1, "The actual story begins here.", (0.1, 0.2, 0.9, 0.4)),
+        ],
+    }
+
+    analysis, annotations = detect_document_structure(pages, total_pages=35)
+
+    assert analysis["schema_version"] == 2
+    assert analysis["page_roles"] == {"1": "contents"}
+    assert analysis["excluded_pages"] == [1]
+    assert analysis["exclusion_reasons"]["1"] == "contents_heading_and_page_numbered_entries"
+    assert annotations[1] == []
+    assert analysis["chapter_count"] == 1
+    assert analysis["chapters"][0]["page_number"] == 5
+    assert analysis["chapters"][0]["title"] == "CHAPTER 1"
+
+
+def test_repeated_page_numbered_entries_can_identify_contents_without_label():
+    pages = {
+        2: [
+            paragraph(0, "A Beginning ........ 3"),
+            paragraph(1, "The Long Road ........ 8"),
+            paragraph(2, "The Return ........ 21"),
+            paragraph(3, "Afterword ........ 34"),
+        ],
+        3: [paragraph(0, "Ordinary prose continues here.", (0.1, 0.2, 0.9, 0.4))],
+    }
+
+    analysis, _ = detect_document_structure(pages, total_pages=40)
+
+    assert analysis["page_roles"] == {"2": "contents"}
+    assert analysis["excluded_pages"] == [2]
+
+
+def test_copyright_page_is_excluded_only_with_multiple_metadata_signals():
+    pages = {
+        1: [
+            paragraph(0, "Copyright © 2024 Example Publisher"),
+            paragraph(1, "All rights reserved. ISBN 978-1-2345-6789-0"),
+        ],
+        2: [paragraph(0, "A meaningful dedication to my family.")],
+    }
+
+    analysis, annotations = detect_document_structure(pages, total_pages=30)
+
+    assert analysis["page_roles"] == {"1": "copyright"}
+    assert analysis["excluded_pages"] == [1]
+    assert annotations[1] == []
+    assert 2 not in analysis["page_roles"]
+
+
+def test_late_contents_like_page_is_not_excluded():
+    pages = {
+        12: [
+            paragraph(0, "Contents"),
+            paragraph(1, "Chapter One ........ 15"),
+            paragraph(2, "Chapter Two ........ 25"),
+        ],
+    }
+
+    analysis, _ = detect_document_structure(pages, total_pages=40)
+
+    assert analysis["excluded_pages"] == []
