@@ -163,7 +163,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
                 raise ValueError("Line checkpoint metadata does not match its page")
             lines = value.get("lines")
             if not isinstance(lines, list) or any(not isinstance(line, dict) for line in lines):
@@ -271,7 +271,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
                 raise ValueError("Paragraph checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             if not isinstance(paragraphs, list) or any(
@@ -317,7 +317,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
                 raise ValueError("Dehyphenation checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             removed = value.get("removed_soft_hyphens")
@@ -359,7 +359,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
                 raise ValueError("Hyphenation checkpoint metadata does not match its page")
             candidates = value.get("candidates")
             if not isinstance(candidates, list) or any(
@@ -378,7 +378,7 @@ class JobWorkspace:
         return self.output_dir / "marginalia-analysis.json"
 
     def save_marginalia_analysis(self, analysis: dict[str, Any]) -> Path:
-        if analysis.get("schema_version") != 1:
+        if analysis.get("schema_version") != 2:
             raise ValueError("Unsupported marginalia analysis schema version")
         path = self.marginalia_analysis_path
         self._atomic_json(path, analysis)
@@ -389,7 +389,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or not isinstance(value.get("items"), list):
+            if value.get("schema_version") != 2 or not isinstance(value.get("items"), list):
                 raise ValueError("Marginalia analysis checkpoint is invalid")
             if type(value.get("total_pages")) is not int or value["total_pages"] < 1:
                 raise ValueError("Marginalia analysis page count is invalid")
@@ -425,7 +425,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or value.get("page_number") != page_number:
+            if value.get("schema_version") != 2 or value.get("page_number") != page_number:
                 raise ValueError("Cleaned paragraph checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             if not isinstance(paragraphs, list) or any(
@@ -447,7 +447,7 @@ class JobWorkspace:
     def save_stitched_paragraphs(
         self, pages: dict[int, list[dict[str, Any]]], analysis: dict[str, Any]
     ) -> Path:
-        if analysis.get("schema_version") != 1:
+        if analysis.get("schema_version") != 2:
             raise ValueError("Unsupported paragraph stitching schema version")
         total_pages = analysis.get("total_pages")
         if type(total_pages) is not int or total_pages < 1:
@@ -474,11 +474,11 @@ class JobWorkspace:
             raw_pages = value.get("pages")
             analysis = value.get("analysis")
             if (
-                value.get("schema_version") != 1
+                value.get("schema_version") != 2
                 or value.get("total_pages") != total_pages
                 or not isinstance(raw_pages, dict)
                 or not isinstance(analysis, dict)
-                or analysis.get("schema_version") != 1
+                or analysis.get("schema_version") != 2
                 or analysis.get("total_pages") != total_pages
             ):
                 raise ValueError("Stitched paragraph checkpoint metadata is invalid")
@@ -506,7 +506,7 @@ class JobWorkspace:
         return self.output_dir / "structure-analysis.json"
 
     def save_structure_analysis(self, analysis: dict[str, Any]) -> Path:
-        if analysis.get("schema_version") != 1:
+        if analysis.get("schema_version") != 2:
             raise ValueError("Unsupported structure analysis schema version")
         self._atomic_json(self.structure_analysis_path, analysis)
         return self.structure_analysis_path
@@ -517,7 +517,7 @@ class JobWorkspace:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
             if (
-                value.get("schema_version") != 1
+                value.get("schema_version") != 2
                 or type(value.get("total_pages")) is not int
                 or value["total_pages"] < 1
                 or not isinstance(value.get("chapters"), list)
@@ -564,7 +564,7 @@ class JobWorkspace:
         return self.output_dir / "document-language-analysis.json"
 
     def save_document_language_analysis(self, analysis: dict[str, Any]) -> Path:
-        if analysis.get("schema_version") != 1:
+        if analysis.get("schema_version") != 2:
             raise ValueError("Unsupported document language analysis schema version")
         self._atomic_json(self.document_language_analysis_path, analysis)
         return self.document_language_analysis_path
@@ -574,7 +574,7 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-            if value.get("schema_version") != 1 or not isinstance(value.get("language"), str):
+            if value.get("schema_version") != 2 or not isinstance(value.get("language"), str):
                 raise ValueError("Document language analysis checkpoint is invalid")
             return value
         except FileNotFoundError:
@@ -606,7 +606,7 @@ class JobWorkspace:
                 value = json.load(stream)
             annotations = value.get("annotations")
             if (
-                value.get("schema_version") != 1
+                value.get("schema_version") != 2
                 or value.get("page_number") != page_number
                 or not isinstance(annotations, list)
                 or any(not isinstance(item, dict) for item in annotations)
