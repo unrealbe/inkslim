@@ -19,7 +19,10 @@ from ..dehyphenation import dehyphenate_paragraphs
 from ..hyphenation import detect_visible_hyphenation_candidates
 from ..pagination import detect_repeated_marginalia
 from ..stitching import stitch_page_paragraphs
-from ..structure import (\n    SCHEMA_VERSION as STRUCTURE_SCHEMA_VERSION,\n    detect_document_structure,\n)
+from ..structure import (
+    SCHEMA_VERSION as STRUCTURE_SCHEMA_VERSION,
+    detect_document_structure,
+)
 from ..epub.generator import generate_job_epub
 from .analyzer import PdfAnalysisError, open_pdf_document
 from .models import PageDecision
