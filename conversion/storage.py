@@ -441,6 +441,67 @@ class JobWorkspace:
 
 
     @property
+    def stitched_paragraphs_path(self) -> Path:
+        return self.output_dir / "stitched-paragraphs.json"
+
+    def save_stitched_paragraphs(
+        self, pages: dict[int, list[dict[str, Any]]], analysis: dict[str, Any]
+    ) -> Path:
+        if analysis.get("schema_version") != 1:
+            raise ValueError("Unsupported paragraph stitching schema version")
+        total_pages = analysis.get("total_pages")
+        if type(total_pages) is not int or total_pages < 1:
+            raise ValueError("Invalid paragraph stitching page count")
+        serialized = {
+            str(page): paragraphs for page, paragraphs in pages.items()
+        }
+        path = self.stitched_paragraphs_path
+        self._atomic_json(path, {
+            "schema_version": 1,
+            "total_pages": total_pages,
+            "pages": serialized,
+            "analysis": analysis,
+        })
+        return path
+
+    def load_stitched_paragraphs(
+        self, total_pages: int
+    ) -> tuple[dict[int, list[dict[str, Any]]], dict[str, Any]] | None:
+        path = self.stitched_paragraphs_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            raw_pages = value.get("pages")
+            analysis = value.get("analysis")
+            if (
+                value.get("schema_version") != 1
+                or value.get("total_pages") != total_pages
+                or not isinstance(raw_pages, dict)
+                or not isinstance(analysis, dict)
+                or analysis.get("schema_version") != 1
+                or analysis.get("total_pages") != total_pages
+            ):
+                raise ValueError("Stitched paragraph checkpoint metadata is invalid")
+            pages = {}
+            for key, paragraphs in raw_pages.items():
+                page = int(key)
+                if key != str(page) or page in pages:
+                    raise ValueError("Stitched paragraph checkpoint has duplicate or invalid pages")
+                if not 1 <= page <= total_pages or not isinstance(paragraphs, list):
+                    raise ValueError("Stitched paragraph checkpoint has invalid pages")
+                if any(not isinstance(item, dict) for item in paragraphs):
+                    raise ValueError("Stitched paragraph checkpoint has invalid paragraphs")
+                pages[page] = paragraphs
+            if set(pages) != set(range(1, total_pages + 1)):
+                raise ValueError("Stitched paragraph checkpoint is incomplete")
+            return pages, analysis
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, TypeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "stitched-paragraphs", "corrupt", exc)
+            return None
+
+    @property
     def structure_analysis_path(self) -> Path:
         return self.output_dir / "structure-analysis.json"
 

@@ -74,10 +74,15 @@ def test_worker_runs_ocr_after_analysis_and_saves_page_result(tmp_path):
     assert marginalia["removed_paragraphs"] == 0
     assert cleaned == dehyphenated[0]
 
-    structure = store.workspace(job.id).load_structure_analysis()
-    page_structure = store.workspace(job.id).load_page_structure(1)
+    workspace = store.workspace(job.id)
+    stitched = workspace.load_stitched_paragraphs(1)
+    structure = workspace.load_structure_analysis()
+    page_structure = workspace.load_page_structure(1)
+    assert stitched is not None
+    assert stitched[0][1][0]["text"] == "Dit is herkende tekst"
     assert structure is not None
     assert structure["chapter_count"] == 0
+    assert structure["paragraph_stitching_schema_version"] == 1
     assert page_structure == []
 
 
