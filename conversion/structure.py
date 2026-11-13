@@ -29,7 +29,7 @@ _TOC_LABELS = {
     "sommaire", "table des matieres", "inhalt", "inhaltsverzeichnis", "indice",
 }
 _TOC_ENTRY = re.compile(
-    r"^.{3,100}?(?:\\.{2,}|…+|\\s{2,})\\s*(?:\\d{1,4}|[ivxlcdm]{1,8})$",
+    r"^.{3,100}?(?:\.{2,}|…+|\s+)\s*(?:\d{1,4}|[ivxlcdm]{1,8})$",
     re.IGNORECASE,
 )
 _COPYRIGHT_SIGNALS = (
