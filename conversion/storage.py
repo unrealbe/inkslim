@@ -425,7 +425,10 @@ class JobWorkspace:
         try:
             with path.open("r", encoding="utf-8") as stream:
                 value = json.load(stream)
-                value.get("schema_version") not in {1, 2}
+            if (
+                value.get("schema_version") != 1
+                or value.get("page_number") != page_number
+            ):
                 raise ValueError("Cleaned paragraph checkpoint metadata does not match its page")
             paragraphs = value.get("paragraphs")
             if not isinstance(paragraphs, list) or any(
@@ -439,7 +442,6 @@ class JobWorkspace:
             self._quarantine_checkpoint(path, page_number, "cleaned-paragraphs", "corrupt", exc)
             return None
 
-
     @property
     def stitched_paragraphs_path(self) -> Path:
         return self.output_dir / "stitched-paragraphs.json"
@@ -447,7 +449,7 @@ class JobWorkspace:
     def save_stitched_paragraphs(
         self, pages: dict[int, list[dict[str, Any]]], analysis: dict[str, Any]
     ) -> Path:
-        if analysis.get("schema_version") not in {1, 2}:
+        if analysis.get("schema_version") != 1:
             raise ValueError("Unsupported paragraph stitching schema version")
         total_pages = analysis.get("total_pages")
         if type(total_pages) is not int or total_pages < 1:
@@ -478,7 +480,7 @@ class JobWorkspace:
                 or value.get("total_pages") != total_pages
                 or not isinstance(raw_pages, dict)
                 or not isinstance(analysis, dict)
-                or analysis.get("schema_version") != 2
+                or analysis.get("schema_version") != 1
                 or analysis.get("total_pages") != total_pages
             ):
                 raise ValueError("Stitched paragraph checkpoint metadata is invalid")
