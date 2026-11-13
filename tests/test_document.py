@@ -434,6 +434,8 @@ def test_workspace_quarantines_document_model_with_unhashable_schema_version(tmp
     )
     assert workspace.load_document_model() is None
     assert not workspace.document_model_path.exists()
+
+
 def test_build_document_model_omits_only_explicitly_excluded_frontmatter_pages():
     cleaned_pages = {
         1: [_para(0, "Contents"), _para(1, "CHAPTER 1 ........ 5")],
