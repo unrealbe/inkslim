@@ -18,7 +18,10 @@ jobs:
           distribution: "temurin"
           java-version: "17"
       - name: Install system packages
-        run: sudo apt-get update && sudo apt-get install -y imagemagick zip unzip shellcheck
+        run: >
+          sudo apt-get update && sudo apt-get install -y
+          imagemagick zip unzip shellcheck
+          tesseract-ocr tesseract-ocr-eng tesseract-ocr-nld tesseract-ocr-osd fonts-dejavu-core
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt
       - name: Download EPUBCheck 5.4.0

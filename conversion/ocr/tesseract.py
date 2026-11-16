@@ -30,7 +30,19 @@ _TSV_FIELDS = (
 _LANGUAGE_RE = re.compile(r"^[A-Za-z0-9_]+$")
 _DEFAULT_TIMEOUT_SECONDS = 120
 _DEFAULT_MAX_IMAGE_PIXELS = 50_000_000
+# Page segmentation mode 1 = automatic layout analysis *with* orientation detection (needs the
+# 'osd' data file). Mode 3 (no orientation detection) reads a page scanned sideways or upside
+# down as garbage; measured accuracy 0.02 versus 1.00, at roughly +0.5 s for a full A4 page.
+_DEFAULT_PAGE_SEGMENTATION_MODE = 1
+_MODES_NEEDING_OSD = frozenset({0, 1})
 _HIGH_CONFIDENCE_THRESHOLD = 70.0
+
+
+# Failures that will repeat for every page. The job should stop instead of reporting each page as
+# failed. All other codes (timeout, engine crash on one image, bad output) are page-level.
+JOB_LEVEL_ERROR_CODES = frozenset(
+    {"OCR_ENGINE_UNAVAILABLE", "OCR_LANGUAGE_UNAVAILABLE", "OCR_OSD_UNAVAILABLE"}
+)
 
 
 class OcrError(RuntimeError):
@@ -40,6 +52,10 @@ class OcrError(RuntimeError):
         super().__init__(public_message)
         self.code = code
         self.public_message = public_message
+
+    @property
+    def job_level(self) -> bool:
+        return self.code in JOB_LEVEL_ERROR_CODES
 
 
 class OcrEngine(Protocol):
@@ -63,7 +79,10 @@ class TesseractOcrEngine:
         timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
         max_image_pixels: int = _DEFAULT_MAX_IMAGE_PIXELS,
         high_confidence_threshold: float = _HIGH_CONFIDENCE_THRESHOLD,
+        page_segmentation_mode: int = _DEFAULT_PAGE_SEGMENTATION_MODE,
     ) -> None:
+        if not isinstance(page_segmentation_mode, int) or not 0 <= page_segmentation_mode <= 13:
+            raise ValueError("page_segmentation_mode must be an integer between 0 and 13")
         if not executable or "\x00" in executable:
             raise ValueError("executable must be a non-empty path")
         if timeout_seconds < 1:
@@ -76,6 +95,7 @@ class TesseractOcrEngine:
         self.timeout_seconds = timeout_seconds
         self.max_image_pixels = max_image_pixels
         self.high_confidence_threshold = high_confidence_threshold
+        self.page_segmentation_mode = page_segmentation_mode
 
     def recognize(
         self,
@@ -93,7 +113,7 @@ class TesseractOcrEngine:
         page_deadline = time.monotonic() + self.timeout_seconds
         first = self._recognize_with_psm(
             path, language_argument, page_number=page_number,
-            width=width, height=height, psm=3,
+            width=width, height=height, psm=self.page_segmentation_mode,
         )
         first_confidence = first.metrics.mean_ocr_confidence
         if (
@@ -221,6 +241,53 @@ class TesseractOcrEngine:
         minimum_word_count = max(1, math.ceil(first_word_count * 0.8))
         return retry_word_count >= minimum_word_count
 
+    def check_runtime(self, languages: list[str]) -> frozenset[str]:
+        """Verify, once per job, that Tesseract runs and the needed data files are installed.
+
+        Raises a job-level OcrError (see ``OcrError.job_level``) instead of letting every page
+        fail with the same message. Returns the installed language codes.
+        """
+        language_argument = self._language_argument(languages)
+        try:
+            completed = subprocess.run(
+                [self.executable, "--list-langs"],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("Could not query Tesseract: %s", exc)
+            raise OcrError(
+                "OCR_ENGINE_UNAVAILABLE", "The text recognition engine could not be started."
+            ) from exc
+        if completed.returncode != 0:
+            raise OcrError(
+                "OCR_ENGINE_UNAVAILABLE", "The text recognition engine could not be started."
+            )
+
+        # Older versions print the list on stderr; the first line is a header.
+        listing = f"{completed.stdout or ''}\n{completed.stderr or ''}"
+        installed = frozenset(
+            line.strip()
+            for line in listing.splitlines()
+            if _LANGUAGE_RE.fullmatch(line.strip())
+        )
+        missing = [code for code in language_argument.split("+") if code not in installed]
+        if missing:
+            raise OcrError(
+                "OCR_LANGUAGE_UNAVAILABLE",
+                "Text recognition data is not installed for: " + ", ".join(sorted(missing)),
+            )
+        if self.page_segmentation_mode in _MODES_NEEDING_OSD and "osd" not in installed:
+            raise OcrError(
+                "OCR_OSD_UNAVAILABLE",
+                "Orientation detection data is not installed for the text recognition engine.",
+            )
+        return installed
+
     def _read_image_dimensions(self, path: Path) -> tuple[int, int]:
         try:
             with Image.open(path) as image:
@@ -255,7 +322,10 @@ class TesseractOcrEngine:
         image_width: int,
         image_height: int,
     ) -> tuple[list[TextBlock], list[float]]:
-        reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+        # Tesseract does not quote TSV fields. QUOTE_NONE is essential: with the default csv
+        # quoting, a word that starts with a double quote (every line of dialogue) swallows the
+        # following rows into one field and corrupts the page.
+        reader = csv.DictReader(io.StringIO(content), delimiter="\t", quoting=csv.QUOTE_NONE)
         if reader.fieldnames is None or any(field not in reader.fieldnames for field in _TSV_FIELDS):
             raise OcrError("OCR_INVALID_OUTPUT", "The text recognition engine returned invalid data.")
 
@@ -309,8 +379,15 @@ class TesseractOcrEngine:
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise OcrError("OCR_INVALID_OUTPUT", "The text recognition engine returned invalid data.") from exc
 
+        # Tesseract restarts par_num and line_num inside every block, so the raw numbers are not
+        # unique on a page. Renumber in reading order (1-based): paragraph_number identifies a
+        # Tesseract paragraph, line_number the line, both unique per page.
+        paragraph_ids: dict[tuple[int, int], int] = {}
         blocks: list[TextBlock] = []
-        for (block_num, paragraph_num, line_num), line in lines.items():
+        for line_index, ((block_num, paragraph_num, _line_num), line) in enumerate(
+            lines.items(), start=1
+        ):
+            paragraph_id = paragraph_ids.setdefault((block_num, paragraph_num), len(paragraph_ids) + 1)
             line_confidences = line["confidences"]
             confidence = (
                 sum(line_confidences) / len(line_confidences)
@@ -328,8 +405,8 @@ class TesseractOcrEngine:
                     block_type="text",
                     confidence=confidence,
                     source=TextSource.TESSERACT,
-                    line_number=line_num,
-                    paragraph_number=paragraph_num,
+                    line_number=line_index,
+                    paragraph_number=paragraph_id,
                 )
             )
         return blocks, all_confidences

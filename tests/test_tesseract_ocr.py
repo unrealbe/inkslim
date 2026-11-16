@@ -59,7 +59,7 @@ def test_parses_words_into_lines_and_normalizes_geometry(page_image, monkeypatch
     assert result.blocks[0].confidence == 95.0
     assert result.blocks[0].line_number == 1
     assert mocked.call_args.args[0] == [
-        "tesseract", str(page_image), "stdout", "-l", "nld+eng", "--psm", "3", "tsv"
+        "tesseract", str(page_image), "stdout", "-l", "nld+eng", "--psm", "1", "tsv"
     ]
     assert mocked.call_args.kwargs["timeout"] == 120
     assert "shell" not in mocked.call_args.kwargs
@@ -188,7 +188,8 @@ def test_low_confidence_retries_with_psm_6_and_selects_better_result(page_image,
     assert result.quality is QualityStatus.HIGH
     assert result.warnings == ["OCR_RETRY_PSM_6_SELECTED"]
     assert mocked.call_count == 2
-    assert mocked.call_args_list[0].args[0][6] == "3"
+    # The first pass detects orientation (psm 1); only the retry uses a fixed block layout.
+    assert mocked.call_args_list[0].args[0][6] == "1"
     assert mocked.call_args_list[1].args[0][6] == "6"
 
 

@@ -11,6 +11,7 @@ RUN apt-get update \
       imagemagick zip unzip coreutils bash \
       tesseract-ocr \
       tesseract-ocr-eng \
+      tesseract-ocr-osd \
       tesseract-ocr-nld \
       tesseract-ocr-fra \
       tesseract-ocr-deu \
@@ -20,7 +21,8 @@ RUN apt-get update \
  && printf '%s\n' "$langs" | grep -Fxq eng \
  && printf '%s\n' "$langs" | grep -Fxq nld \
  && printf '%s\n' "$langs" | grep -Fxq fra \
- && printf '%s\n' "$langs" | grep -Fxq deu
+ && printf '%s\n' "$langs" | grep -Fxq deu \
+ && printf '%s\n' "$langs" | grep -Fxq osd
 
 WORKDIR /app
 COPY requirements.txt ./
