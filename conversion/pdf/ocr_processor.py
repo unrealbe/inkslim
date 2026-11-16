@@ -45,6 +45,7 @@ class PdfOcrJobProcessor:
                 total_pages = len(document)
                 if total_pages < 1:
                     raise PdfAnalysisError("EMPTY_PDF", "The PDF does not contain any pages")
+                runtime_checked = False
                 for page_index in range(total_pages):
                     page_number = page_index + 1
                     if store.is_cancel_requested(job.id):
@@ -90,8 +91,16 @@ class PdfOcrJobProcessor:
                         page.close()
 
                     try:
+                        languages = ocr_languages_for_selection(job.language)
+                        if not runtime_checked:
+                            # Missing Tesseract or language data fails the job once, before
+                            # any page, instead of failing every page with the same message.
+                            check_runtime = getattr(self.engine, "check_runtime", None)
+                            if callable(check_runtime):
+                                check_runtime(languages)
+                            runtime_checked = True
                         result = self.engine.recognize(
-                            destination, ocr_languages_for_selection(job.language), page_number=page_number
+                            destination, languages, page_number=page_number
                         )
                     except OcrError as exc:
                         raise JobProcessingError(exc.code, exc.public_message) from exc
