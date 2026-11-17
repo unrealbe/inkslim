@@ -586,13 +586,13 @@ def build_quality_report(
                                 or not resolved_asset.is_file()
                             ):
                                 continue
-                            source_size = resolved_asset.stat().st_size
+                            asset_size = resolved_asset.stat().st_size
                             embedded_size = archive.getinfo(archive_name).file_size
                         except (OSError, RuntimeError):
                             continue
-                        if embedded_size < source_size:
+                        if embedded_size < asset_size:
                             optimized_count += 1
-                            saved_bytes += source_size - embedded_size
+                            saved_bytes += asset_size - embedded_size
                 image_stats["optimized_image_count"] = optimized_count
                 image_stats["optimization_saved_bytes"] = saved_bytes
                 image_stats["status"] = (
