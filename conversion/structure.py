@@ -11,6 +11,11 @@ import unicodedata
 from typing import Any
 
 SCHEMA_VERSION = 2
+# Headings that are recognized only by their shape (a leading number, or short capitals) are
+# accepted from OCR text only when the OCR was reasonably sure about it. Artwork, spines and
+# logos give fragments such as "4 x Pa > a x oe I z m" that otherwise become chapters.
+# Explicit labels such as "Chapter 4" are specific enough not to need this.
+MIN_HEADING_OCR_CONFIDENCE = 75.0
 _CHAPTER = re.compile(
     r"^(?:chapter|hoofdstuk|chapitre|kapitel|deel|part|partie|teil)\s+"
     r"(?:\d{1,3}|[ivxlcdm]{1,12}|[a-z]+)"
@@ -103,7 +108,21 @@ def _normalize(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
 
 
-def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
+def _unreliable_ocr(paragraph: dict[str, Any]) -> bool:
+    """True when the paragraph is OCR text that the engine itself was not sure about."""
+    if paragraph.get("source") == "native":
+        return False
+    confidence = paragraph.get("confidence")
+    return (
+        isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and confidence < MIN_HEADING_OCR_CONFIDENCE
+    )
+
+
+def _classify(
+    paragraph: dict[str, Any], *, require_reliable_ocr: bool = True
+) -> dict[str, Any] | None:
     text = paragraph.get("text")
     box = _bbox(paragraph)
     if not isinstance(text, str) or box is None:
@@ -113,6 +132,7 @@ def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
     if not 3 <= len(clean) <= 100 or _TERMINAL.search(clean) or box[1] > 0.82 or box[3] < 0.02:
         return None
 
+    shape_only = False
     if _CHAPTER.fullmatch(normalized):
         kind, confidence, reason, chapter_start = (
             "chapter_heading", 0.98, "explicit_multilingual_chapter_label", True
@@ -122,6 +142,7 @@ def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
             "section_heading", 0.94, "recognized_standalone_section_label", False
         )
     else:
+        shape_only = True
         numbered = _NUMBERED.fullmatch(clean)
         if numbered:
             number = numbered.group(1)
@@ -137,6 +158,9 @@ def _classify(paragraph: dict[str, Any]) -> dict[str, Any] | None:
             kind, confidence, reason, chapter_start = (
                 "display_heading", 0.78, "short_standalone_all_caps_text", False
             )
+
+    if shape_only and require_reliable_ocr and _unreliable_ocr(paragraph):
+        return None
 
     paragraph_index = paragraph.get("paragraph_index")
     if type(paragraph_index) is not int or paragraph_index < 0:
@@ -164,6 +188,7 @@ def detect_document_structure(
     annotations: dict[int, list[dict[str, Any]]] = {}
     chapters: list[dict[str, Any]] = []
     heading_count = 0
+    suppressed_low_confidence = 0
     page_roles: dict[str, str] = {}
     excluded_pages: list[int] = []
     exclusion_reasons: dict[str, str] = {}
@@ -183,6 +208,8 @@ def detect_document_structure(
         for paragraph in page_paragraphs:
             annotation = _classify(paragraph)
             if annotation is None:
+                if _classify(paragraph, require_reliable_ocr=False) is not None:
+                    suppressed_low_confidence += 1
                 continue
             heading_count += 1
             if annotation["chapter_start"]:
@@ -206,6 +233,7 @@ def detect_document_structure(
         "excluded_pages": excluded_pages,
         "exclusion_reasons": exclusion_reasons,
         "heading_count": heading_count,
+        "suppressed_low_confidence_headings": suppressed_low_confidence,
         "chapter_count": len(chapters),
         "chapters": chapters,
     }
