@@ -121,7 +121,7 @@ def _unreliable_ocr(paragraph: dict[str, Any]) -> bool:
 
 
 def _classify(
-    paragraph: dict[str, Any], *, require_reliable_ocr: bool = True
+    paragraph: dict[str, Any], *, suppressed: list[bool] | None = None
 ) -> dict[str, Any] | None:
     text = paragraph.get("text")
     box = _bbox(paragraph)
@@ -159,7 +159,9 @@ def _classify(
                 "display_heading", 0.78, "short_standalone_all_caps_text", False
             )
 
-    if shape_only and require_reliable_ocr and _unreliable_ocr(paragraph):
+    if shape_only and _unreliable_ocr(paragraph):
+        if suppressed is not None:
+            suppressed.append(True)
         return None
 
     paragraph_index = paragraph.get("paragraph_index")
@@ -206,10 +208,10 @@ def detect_document_structure(
             continue
         page_annotations = []
         for paragraph in page_paragraphs:
-            annotation = _classify(paragraph)
+            suppression = []
+            annotation = _classify(paragraph, suppressed=suppression)
             if annotation is None:
-                if _classify(paragraph, require_reliable_ocr=False) is not None:
-                    suppressed_low_confidence += 1
+                suppressed_low_confidence += len(suppression)
                 continue
             heading_count += 1
             if annotation["chapter_start"]:
