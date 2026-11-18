@@ -219,3 +219,12 @@ def test_paragraphs_without_a_confidence_value_are_accepted():
         {1: [ocr_paragraph(1, "3 Harbour Lights", None)]}, total_pages=1
     )
     assert analysis["chapter_count"] == 1
+
+
+
+def test_invalid_paragraph_index_is_not_counted_as_suppressed_heading():
+    analysis, annotations = detect_document_structure(
+        {1: [ocr_paragraph(-1, "4 x Pa > a xoeI zm", 40.0)]}, total_pages=1
+    )
+    assert analysis["suppressed_low_confidence_headings"] == 0
+    assert annotations[1] == []
