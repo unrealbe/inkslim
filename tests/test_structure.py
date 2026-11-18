@@ -149,3 +149,82 @@ def test_late_contents_like_page_is_not_excluded():
     analysis, _ = detect_document_structure(pages, total_pages=40)
 
     assert analysis["excluded_pages"] == []
+
+
+def ocr_paragraph(index, text, confidence, *, source="tesseract", bbox=(0.1, 0.08, 0.9, 0.14)):
+    return {
+        "paragraph_index": index, "text": text, "bbox": list(bbox),
+        "confidence": confidence, "source": source, "line_indices": [index],
+    }
+
+
+def test_low_confidence_ocr_with_a_leading_number_is_not_a_chapter():
+    # Real example: vertical book spines on an advertisement page.
+    garbage = "4 x Pa > a xoeI zm"
+    analysis, annotations = detect_document_structure(
+        {1: [ocr_paragraph(1, garbage, 66.1)]}, total_pages=1
+    )
+    assert analysis["chapter_count"] == 0
+    assert analysis["heading_count"] == 0
+    assert annotations[1] == []
+    assert analysis["suppressed_low_confidence_headings"] == 1
+
+
+def test_the_same_numbered_text_read_confidently_is_still_a_chapter():
+    analysis, annotations = detect_document_structure(
+        {1: [ocr_paragraph(1, "4 The Long Road", 91.0)]}, total_pages=1
+    )
+    assert analysis["chapter_count"] == 1
+    assert annotations[1][0]["kind"] == "chapter_heading"
+    assert analysis["suppressed_low_confidence_headings"] == 0
+
+
+def test_low_confidence_ocr_capitals_are_not_a_display_heading():
+    pages = {1: [
+        ocr_paragraph(1, "SY NUOSSS SNIDSNBAY", 33.0),
+        ocr_paragraph(2, "BACKGROUND AND SCOPE", 93.0, bbox=(0.1, 0.3, 0.9, 0.36)),
+    ]}
+    analysis, annotations = detect_document_structure(pages, total_pages=1)
+    assert [item["text"] for item in annotations[1]] == ["BACKGROUND AND SCOPE"]
+    assert analysis["suppressed_low_confidence_headings"] == 1
+
+
+def test_explicit_chapter_label_does_not_need_confident_ocr():
+    analysis, annotations = detect_document_structure(
+        {1: [ocr_paragraph(1, "CHAPTER 4", 58.0)], 2: [ocr_paragraph(1, "Prologue", 61.0)]},
+        total_pages=2,
+    )
+    assert analysis["chapter_count"] == 1
+    assert annotations[2][0]["kind"] == "section_heading"
+    assert analysis["suppressed_low_confidence_headings"] == 0
+
+
+def test_native_text_is_never_held_back_by_a_confidence_value():
+    analysis, _ = detect_document_structure(
+        {1: [ocr_paragraph(1, "1 Introduction", 12.0, source="native")]}, total_pages=1
+    )
+    assert analysis["chapter_count"] == 1
+
+
+def test_text_that_mixes_native_and_ocr_follows_its_confidence():
+    analysis, _ = detect_document_structure(
+        {1: [ocr_paragraph(1, "2 Seven Rivers", 60.0, source="mixed")]}, total_pages=1
+    )
+    assert analysis["chapter_count"] == 0
+    assert analysis["suppressed_low_confidence_headings"] == 1
+
+
+def test_paragraphs_without_a_confidence_value_are_accepted():
+    analysis, _ = detect_document_structure(
+        {1: [ocr_paragraph(1, "3 Harbour Lights", None)]}, total_pages=1
+    )
+    assert analysis["chapter_count"] == 1
+
+
+
+def test_invalid_paragraph_index_is_not_counted_as_suppressed_heading():
+    analysis, annotations = detect_document_structure(
+        {1: [ocr_paragraph(-1, "4 x Pa > a xoeI zm", 40.0)]}, total_pages=1
+    )
+    assert analysis["suppressed_low_confidence_headings"] == 0
+    assert annotations[1] == []

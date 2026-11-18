@@ -8,6 +8,7 @@ from reportlab.pdfgen import canvas
 
 from conversion.models import JobStatus, PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
 from conversion.ocr import OcrError
+import conversion.pdf.ocr_processor as ocr_processor
 from conversion.pdf.ocr_processor import PdfConversionJobProcessor
 from conversion.storage import JobStore
 from conversion.worker import ConversionWorker
@@ -232,3 +233,55 @@ def test_structure_annotations_recovered_when_interrupted_after_global_analysis(
     assert doc.chapters[0].title == "CHAPTER 1"
     assert doc.chapters[1].title == "CHAPTER 2"
 
+
+
+
+def test_legacy_structure_checkpoint_is_rebuilt_once_for_heading_confidence(tmp_path, monkeypatch):
+    source = make_scanned_pdf(tmp_path / "legacy-structure.pdf")
+    store = JobStore(tmp_path / "jobs.sqlite3", tmp_path / "jobs")
+    job = store.create_job(source, source.name)
+    worker = ConversionWorker(
+        store, PdfConversionJobProcessor(engine=FakeOcrEngine()), worker_id="legacy"
+    )
+
+    assert worker.run_once()
+    assert worker.run_once()
+    assert store.get_job(job.id).status is JobStatus.COMPLETED
+
+    workspace = store.workspace(job.id)
+    structure = workspace.load_structure_analysis()
+    assert structure is not None
+    structure.pop("suppressed_low_confidence_headings")
+    workspace.save_structure_analysis(structure)
+
+    original_detect = ocr_processor.detect_document_structure
+    rebuild_calls = []
+
+    def counted_detect(*args, **kwargs):
+        rebuild_calls.append(True)
+        return original_detect(*args, **kwargs)
+
+    monkeypatch.setattr(ocr_processor, "detect_document_structure", counted_detect)
+
+    # Simulate resuming a schema-v2 job created before the confidence filter.
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = ?, worker_id = NULL WHERE id = ?",
+            (JobStatus.READY_FOR_OCR.value, job.id),
+        )
+
+    assert worker.run_once()
+    rebuilt = workspace.load_structure_analysis()
+    assert rebuilt is not None
+    assert "suppressed_low_confidence_headings" in rebuilt
+    assert len(rebuild_calls) == 1
+
+    # A second resume sees the migrated checkpoint and must reuse it.
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = ?, worker_id = NULL WHERE id = ?",
+            (JobStatus.READY_FOR_OCR.value, job.id),
+        )
+
+    assert worker.run_once()
+    assert len(rebuild_calls) == 1

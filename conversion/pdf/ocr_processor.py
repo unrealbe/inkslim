@@ -285,6 +285,9 @@ class PdfOcrJobProcessor:
                     or structure.get("total_pages") != total_pages
                     or structure.get("schema_version") != STRUCTURE_SCHEMA_VERSION
                     or structure.get("paragraph_stitching_schema_version") != 1
+                    # Schema version 2 predates OCR-confidence heading suppression. Rebuild
+                    # legacy checkpoints once without bumping the persisted schema version.
+                    or "suppressed_low_confidence_headings" not in structure
                     or not has_all_page_structures
                 )
                 if rebuild_structure:
