@@ -159,13 +159,13 @@ def _classify(
                 "display_heading", 0.78, "short_standalone_all_caps_text", False
             )
 
+    paragraph_index = paragraph.get("paragraph_index")
+    if type(paragraph_index) is not int or paragraph_index < 0:
+        return None
+
     if shape_only and _unreliable_ocr(paragraph):
         if suppressed is not None:
             suppressed.append(True)
-        return None
-
-    paragraph_index = paragraph.get("paragraph_index")
-    if type(paragraph_index) is not int or paragraph_index < 0:
         return None
     return {
         "paragraph_index": paragraph_index,
