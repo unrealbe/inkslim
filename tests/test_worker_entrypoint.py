@@ -16,7 +16,16 @@ def test_worker_entrypoint_builds_store_processor_and_runs(monkeypatch, tmp_path
             calls["retention_hours"] = retention_hours
 
     class FakeProcessor:
-        def __init__(self, render_limits, *, timeout_seconds, native_text_sample_interval):
+        def __init__(
+            self,
+            render_limits,
+            *,
+            timeout_seconds,
+            native_text_sample_interval,
+            gemini_api_key=None,
+            gemini_model="gemini-2.5-flash",
+            gemini_timeout_seconds=30,
+        ):
             calls["render_limits"] = render_limits
             calls["timeout_seconds"] = timeout_seconds
             calls["native_text_sample_interval"] = native_text_sample_interval
