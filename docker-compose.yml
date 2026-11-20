@@ -34,6 +34,11 @@ services:
       - MAX_RENDER_PIXELS=50000000
       - MAX_RENDER_DIMENSION=12000
       - OCR_WORKERS=1
+      # Optional: AI-assisted chapter structure refinement via Gemini.
+      # Provide your API key to enable. The pipeline is fully functional without it.
+      # - GEMINI_API_KEY=your-api-key-here
+      # - GEMINI_MODEL=gemini-2.0-flash-lite   # default; override if needed
+      # - GEMINI_TIMEOUT_SECONDS=30             # default; increase for slow networks
     volumes:
       - conversion-data:/data/conversion
     # The image healthcheck targets the Flask web endpoint, which is not
