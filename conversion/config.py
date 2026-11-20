@@ -21,6 +21,9 @@ class ConversionConfig:
     max_render_pixels: int = 50_000_000
     max_render_dimension: int = 12_000
     native_text_sample_interval: int = 10
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_timeout_seconds: int = 30
 
     @property
     def database_path(self) -> Path:
@@ -45,6 +48,9 @@ class ConversionConfig:
             max_render_pixels=_read_int("MAX_RENDER_PIXELS", 50_000_000, minimum=1),
             max_render_dimension=_read_int("MAX_RENDER_DIMENSION", 12_000, minimum=1),
             native_text_sample_interval=_read_int("NATIVE_TEXT_SAMPLE_INTERVAL", 10, minimum=1),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip() or None,
+            gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
+            gemini_timeout_seconds=_read_int("GEMINI_TIMEOUT_SECONDS", 30, minimum=1),
         )
         if config.ocr_workers != 1:
             raise ValueError("OCR_WORKERS must remain 1 in conversion V1")

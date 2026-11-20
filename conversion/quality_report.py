@@ -650,6 +650,8 @@ def build_quality_report(
         "structure": {
             "heading_count": structure["heading_count"] if structure else 0,
             "chapter_count": structure["chapter_count"] if structure else 0,
+            "ai_refined": bool(structure.get("ai_refined", False)) if structure else False,
+            "ai_model": structure.get("ai_model") if structure else None,
         },
         "document_structure": document_structure,
         "images": image_stats,

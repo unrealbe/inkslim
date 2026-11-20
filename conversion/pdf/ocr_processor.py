@@ -34,9 +34,25 @@ logger = logging.getLogger(__name__)
 class PdfOcrJobProcessor:
     """OCR only pages explicitly classified OCR_REQUIRED; persist each result."""
 
-    def __init__(self, render_limits=None, *, engine: OcrEngine | None = None, timeout_seconds: int = 120):
+    def __init__(
+        self,
+        render_limits=None,
+        *,
+        engine: OcrEngine | None = None,
+        timeout_seconds: int = 120,
+        gemini_api_key: str | None = None,
+        gemini_model: str = "gemini-2.5-flash",
+        gemini_timeout_seconds: int = 30,
+    ):
         self.render_limits = render_limits or PDFRenderLimits()
         self.engine = engine or TesseractOcrEngine(timeout_seconds=timeout_seconds)
+        self.gemini_api_key = (
+            gemini_api_key
+            if gemini_api_key is not None
+            else os.environ.get("GEMINI_API_KEY", "").strip() or None
+        )
+        self.gemini_model = gemini_model
+        self.gemini_timeout_seconds = gemini_timeout_seconds
 
     def __call__(self, job: Job, workspace: JobWorkspace, store: JobStore) -> JobExecutionResult:
         try:
@@ -294,6 +310,44 @@ class PdfOcrJobProcessor:
                     structure, page_annotations = detect_document_structure(
                         stitched_pages, total_pages=total_pages
                     )
+                    if self.gemini_api_key:
+                        cached_ai = workspace.load_ai_structure_analysis()
+                        if cached_ai is None:
+                            try:
+                                from ..gemini import query_gemini_structure
+
+                                cached_ai = query_gemini_structure(
+                                    stitched_pages,
+                                    structure,
+                                    page_annotations,
+                                    total_pages=total_pages,
+                                    api_key=self.gemini_api_key,
+                                    model=self.gemini_model,
+                                    timeout_seconds=self.gemini_timeout_seconds,
+                                    title=getattr(job, "title", None) or job.input_name,
+                                )
+                                if cached_ai:
+                                    workspace.save_ai_structure_analysis(cached_ai)
+                            except Exception as exc:
+                                logger.warning(
+                                    "Gemini structure refinement failed for job %s, "
+                                    "falling back to heuristic structure: %s",
+                                    job.id,
+                                    exc,
+                                )
+                                cached_ai = None
+
+                        if cached_ai:
+                            from ..gemini import apply_gemini_structure_refinement
+
+                            structure, page_annotations = apply_gemini_structure_refinement(
+                                stitched_pages,
+                                structure,
+                                page_annotations,
+                                cached_ai,
+                                total_pages=total_pages,
+                                model_name=self.gemini_model,
+                            )
                 else:
                     page_annotations = {}
                 for page_number in range(1, total_pages + 1):
@@ -345,8 +399,15 @@ class PdfConversionJobProcessor:
     """Dispatch a claimed job to its current PDF pipeline phase."""
 
     def __init__(
-        self, render_limits=None, *, engine: OcrEngine | None = None,
-        timeout_seconds: int = 120, native_text_sample_interval: int = 10,
+        self,
+        render_limits=None,
+        *,
+        engine: OcrEngine | None = None,
+        timeout_seconds: int = 120,
+        native_text_sample_interval: int = 10,
+        gemini_api_key: str | None = None,
+        gemini_model: str = "gemini-2.5-flash",
+        gemini_timeout_seconds: int = 30,
     ):
         from .processor import PdfAnalysisJobProcessor
 
@@ -357,7 +418,12 @@ class PdfConversionJobProcessor:
             timeout_seconds=timeout_seconds,
         )
         self.ocr = PdfOcrJobProcessor(
-            render_limits=render_limits, engine=engine, timeout_seconds=timeout_seconds
+            render_limits=render_limits,
+            engine=engine,
+            timeout_seconds=timeout_seconds,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            gemini_timeout_seconds=gemini_timeout_seconds,
         )
 
     def __call__(self, job: Job, workspace: JobWorkspace, store: JobStore) -> JobExecutionResult:

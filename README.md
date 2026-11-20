@@ -147,8 +147,19 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | MAX_OCR_PAGES | 0 | Maximum OCR page count; 0 means unlimited. |
 | JOB_RETENTION_HOURS | 24 | Retain completed, failed and cancelled jobs for this many hours after completion. |
 | MAX_CONVERSION_STORAGE_MB | 5120 | Admission quota for persistent conversion job workspaces; new uploads return HTTP 507 when full. |
+| GEMINI_API_KEY | empty | Optional Google Gemini API key for opt-in AI structure and chapter refinement. |
+| GEMINI_MODEL | gemini-2.5-flash | Gemini model name used for AI structure analysis. |
+| GEMINI_TIMEOUT_SECONDS | 30 | Timeout in seconds for Gemini API requests. |
 
 Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to enable login. If either is empty, authentication is disabled.
+
+### AI-assisted chapter structure refinement (Optional)
+
+Inkslim is 100% offline by default: document structure detection uses local heuristics to identify numbered headings, multilingual chapter labels and short titles. If you set `GEMINI_API_KEY`, Inkslim can optionally use Google Gemini to refine chapter divisions:
+
+- **Enhanced structure & navigation:** sends layout candidate snippets and early Table of Contents entries to Gemini to identify missing chapters (e.g. from fancy or stylized fonts), filter out false positive headings caused by scan artifacts or publisher logos, and provide clean chapter navigation.
+- **Graceful offline fallbacks:** if the Gemini API is unreachable, times out, or rate-limits, the conversion automatically logs a warning and proceeds with local heuristic structure detection. Jobs will never fail due to external API errors.
+- **Crash-safe checkpointing:** AI structure results are saved in a durable checkpoint (`ai-structure-analysis.json`) within the job workspace. Interrupted workers or retries reuse the cached analysis and never call the API twice.
 
 **Timeout note:** the supplied Compose file overrides the image's default Gunicorn command and sets Gunicorn's request timeout to 300 seconds. SHRINK_TIMEOUT is a separate timeout for the EPUB helper process. If you routinely process large files that take several minutes, keep the Gunicorn timeout and SHRINK_TIMEOUT aligned with the processing time you need.
 
@@ -307,6 +318,7 @@ The current implementation foundation includes:
 - A separate advisory stage that records likely visible end-of-line hyphenation candidates without automatically changing recognized text.
 - Document-level detection of repeated headers, footers and consistently positioned page numbers, with separate cleaned paragraph checkpoints.
 - Conservative heading and chapter-boundary detection with confidence/reason annotations and durable document/page structure checkpoints.
+- Optional Gemini AI structure refinement (`GEMINI_API_KEY`) for chapter boundary verification and Table of Contents alignment with safe local fallbacks and durable checkpoints.
 - A single OCR worker, page-level timeouts and cooperative cancellation checks between pages.
 
 The worker now runs the complete backend conversion path: PDF analysis, native-text extraction and sampled OCR validation, Tesseract OCR where required, line and paragraph reconstruction, conservative dehyphenation, repeated page-furniture removal, chapter/heading detection, document-model assembly and EPUB 3 generation. It stores resumable checkpoints and marks a job complete only after the EPUB has passed runtime structural validation and a JSON quality report has been written. The report contains page diagnostics and aggregate quality metrics, not recognized book text.

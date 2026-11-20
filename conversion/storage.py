@@ -542,6 +542,30 @@ class JobWorkspace:
             return None
 
     @property
+    def ai_structure_analysis_path(self) -> Path:
+        return self.output_dir / "ai-structure-analysis.json"
+
+    def save_ai_structure_analysis(self, analysis: dict[str, Any]) -> Path:
+        if not isinstance(analysis, dict):
+            raise ValueError("AI structure analysis checkpoint must be a dictionary")
+        self._atomic_json(self.ai_structure_analysis_path, analysis)
+        return self.ai_structure_analysis_path
+
+    def load_ai_structure_analysis(self) -> dict[str, Any] | None:
+        path = self.ai_structure_analysis_path
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                value = json.load(stream)
+            if not isinstance(value, dict):
+                raise ValueError("AI structure analysis checkpoint is invalid")
+            return value
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError, AttributeError, ValueError) as exc:
+            self._quarantine_checkpoint(path, 1, "ai-structure-analysis", "corrupt", exc)
+            return None
+
+    @property
     def document_model_path(self) -> Path:
         return self.output_dir / "document-model.json"
 

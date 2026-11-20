@@ -33,6 +33,9 @@ def main() -> None:
         render_limits=render_limits,
         timeout_seconds=config.ocr_timeout_page,
         native_text_sample_interval=config.native_text_sample_interval,
+        gemini_api_key=config.gemini_api_key,
+        gemini_model=config.gemini_model,
+        gemini_timeout_seconds=config.gemini_timeout_seconds,
     )
     worker = ConversionWorker(
         store,
