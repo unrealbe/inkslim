@@ -236,6 +236,8 @@ def test_conversion_progress_status_targets_visible_status_and_shows_percentage(
     assert 'progress.value = percentage;' in html
     assert 'completedPages + "/" + totalPages + " pages · " + percentage + "%"' in html
     assert 'progress.setAttribute("aria-label","Conversion progress: " + percentage + "%")' in html
+    assert 'progress.setAttribute("aria-label","Conversion progress")' in html
+    assert 'Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)))' in html
 
 
 def test_index_reflects_cwa_enabled_flag(monkeypatch):
@@ -249,5 +251,3 @@ def test_index_reflects_cwa_enabled_flag(monkeypatch):
     html_enabled = app.app.test_client().get("/").get_data(as_text=True)
     assert 'data-cwa-enabled="true"' in html_enabled
     assert 'fetch("send-to-cwa",{method:"POST",body:cwaForm})' in html_enabled
-    assert 'progress.setAttribute("aria-label","Conversion progress")' in html
-    assert 'Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)))' in html
