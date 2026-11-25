@@ -452,7 +452,7 @@ The web application exposes a small API:
 | GET | /healthz | Health check; returns ok. |
 | GET | /favicon.ico | Browser favicon. |
 | POST | /shrink | Process one uploaded EPUB or PDF. |
-| POST | /send-to-cwa | Send a processed EPUB/PDF shrink result to the configured CWA ingest folder. |
+| POST | /send-to-cwa | Upload a processed EPUB or PDF as multipart `file` and atomically copy it to the configured CWA ingest folder. |
 | POST | /api/conversions | Upload a PDF and create an asynchronous PDF-to-EPUB job. |
 | GET | /api/conversions/{id} | Read conversion status and page progress. |
 | GET | /api/conversions | List recent conversion jobs (default 20, maximum 100). |
