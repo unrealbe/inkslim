@@ -494,7 +494,20 @@ def test_worker_gemini_structure_pipeline_and_caching(tmp_path):
         assert p2_annot[0]["chapter_start"] is True
 
 
-def test_worker_gemini_structure_fallback_on_api_error(tmp_path):
+@pytest.mark.parametrize(
+    "gemini_response",
+    [
+        GeminiApiError("429 Too Many Requests"),
+        {
+            "chapters": [
+                {"page_number": 1, "paragraph_index": 0, "title": "AI chapter"}
+            ],
+            "confidence": "not-a-number",
+        },
+    ],
+    ids=["api-error", "invalid-confidence"],
+)
+def test_worker_gemini_structure_fallback_on_api_error(tmp_path, gemini_response):
     from conversion.models import Job, JobStatus, PageMetrics, PageResult, QualityStatus, TextBlock, TextSource
     from conversion.pdf.models import PageAnalysis, PageDecision
     from conversion.pdf.ocr_processor import PdfOcrJobProcessor
@@ -586,7 +599,7 @@ def test_worker_gemini_structure_fallback_on_api_error(tmp_path):
     )
 
     with patch("conversion.pdf.ocr_processor.open_pdf_document", return_value=mock_doc), \
-         patch("conversion.gemini.query_gemini_structure", side_effect=GeminiApiError("429 Too Many Requests")), \
+         patch("conversion.gemini.query_gemini_structure", side_effect=gemini_response if isinstance(gemini_response, Exception) else None, return_value=gemini_response if not isinstance(gemini_response, Exception) else None), \
          patch("conversion.pdf.ocr_processor.generate_job_epub", return_value=tmp_path / "out.epub"), \
          patch("conversion.pdf.ocr_processor.build_quality_report", return_value=tmp_path / "report.json"):
 
