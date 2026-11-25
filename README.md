@@ -40,6 +40,7 @@ It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are 
 - **Optional HTTP Basic Authentication** and health-check endpoint.
 - **PDF-to-EPUB conversion:** upload text-based or scanned PDFs and create reflowable EPUB 3 books using native text extraction and OCR. Reconstructed text remains real EPUB text; extracted illustrations are recompressed before embedding. Jobs run in the background, can be monitored or cancelled, and provide a quality report with the generated EPUB.
 - **Modern dark dashboard:** a responsive workspace with sidebar navigation, clear upload flow and conversion history.
+- **Optional Calibre-Web Automated integration:** send completed PDF-to-EPUB conversions and optimized EPUB/PDF files to a mounted CWA ingest folder.
 
 ## Which mode should I use?
 
@@ -150,17 +151,20 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | GEMINI_API_KEY | empty | Optional Google Gemini API key for opt-in AI structure and chapter refinement. |
 | GEMINI_MODEL | gemini-2.5-flash | Gemini model name used for AI structure analysis. |
 | GEMINI_TIMEOUT_SECONDS | 30 | Timeout in seconds for Gemini API requests. |
-| CWA_INGEST_DIR | empty | Optional path to your Calibre-Web Automated ingest folder (e.g. `/cwa-book-ingest`). Enables the **Send to Calibre-Web** button for completed EPUB conversions. |
+| CWA_INGEST_DIR | empty | Optional path to your Calibre-Web Automated ingest folder (e.g. `/cwa-book-ingest`). Enables **Send to Calibre-Web** for completed PDF-to-EPUB jobs and optimized EPUB/PDF shrink results. |
 
 Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to enable login. If either is empty, authentication is disabled.
 
 ### AI-assisted chapter structure refinement (Optional)
 
-Inkslim is 100% offline by default: document structure detection uses local heuristics to identify numbered headings, multilingual chapter labels and short titles. If you set `GEMINI_API_KEY`, Inkslim can optionally use Google Gemini to refine chapter divisions:
+Inkslim uses local heuristics by default and does not contact Gemini unless `GEMINI_API_KEY` is configured on the **worker** service. With a key configured, the PDF-to-EPUB pipeline can make an optional Gemini API request to refine chapter boundaries and navigation.
 
-- **Enhanced structure & navigation:** sends layout candidate snippets and early Table of Contents entries to Gemini to identify missing chapters (e.g. from fancy or stylized fonts), filter out false positive headings caused by scan artifacts or publisher logos, and provide clean chapter navigation.
-- **Graceful offline fallbacks:** if the Gemini API is unreachable, times out, or rate-limits, the conversion automatically logs a warning and proceeds with local heuristic structure detection. Jobs will never fail due to external API errors.
-- **Crash-safe checkpointing:** AI structure results are saved in a durable checkpoint (`ai-structure-analysis.json`) within the job workspace. Interrupted workers or retries reuse the cached analysis and never call the API twice.
+- **What AI does:** it reviews candidate headings and short paragraph snippets to identify missed chapter starts and remove likely false positives such as scan noise, running headers, page numbers and publisher artwork. It can also suggest book title and author metadata. It refines structure; it does not perform OCR or rewrite the recognized body text.
+- **What is sent:** selected text snippets (up to 1,200 candidates, truncated to 120 characters each), page and paragraph positions, existing detected chapter titles, page count and the working title / uploaded filename. The source PDF and page images are not uploaded by this integration. Because snippets can contain copyrighted book text or personal information present in a document, enable the feature only if you are comfortable sending those excerpts to Google under the terms and privacy settings of your Gemini API account.
+- **Fallback:** if the API is unavailable, times out, rejects the request or returns unusable structure, Inkslim continues with local heuristic detection. A Gemini API failure does not fail the conversion job.
+- **Checkpointing and visibility:** successful AI responses are stored in the job workspace as `ai-structure-analysis.json` and reused when the worker resumes. The quality report and dashboard indicate whether chapter structure was AI-refined and identify the model; otherwise they show local heuristic detection.
+
+To enable it, set `GEMINI_API_KEY` in the `worker` service environment and optionally set `GEMINI_MODEL` and `GEMINI_TIMEOUT_SECONDS`. Keep the key out of source control and do not add it to the `web` service unless needed there.
 
 ### Calibre-Web Automated (CWA) integration (Optional)
 
@@ -208,7 +212,9 @@ Use the separate **Convert PDF to EPUB** operation for text-based PDFs and scann
 
 The dashboard offers one OCR language per book. The HTTP API retains support for combined language codes for existing integrations.
 
-Document structure detection conservatively distinguishes early contents and copyright pages from reading content. A contents page is omitted only when it has an explicit contents heading plus at least two page-numbered entries, or at least four repeated page-numbered entries on an early page. A copyright page is omitted only when multiple copyright/ISBN/publisher signals agree and the page is short. Ambiguous front matter is retained. These decisions are recorded in the structure checkpoint; source PDF text and per-page OCR checkpoints are never modified.\n\nGenerated EPUBs use visible paragraph spacing without first-line indentation. On the first page only, Tesseract output with fewer than 20 recognized words is omitted from the reading flow when page analysis identifies a dominant cover image with at least 0.75 classification confidence and at least 45% image coverage. This filter is disabled for one-page PDFs and when image extraction confidence is insufficient; the cover image itself remains embedded, and native or text-rich page content is retained.
+Document structure detection conservatively distinguishes early contents and copyright pages from reading content. A contents page is omitted only when it has an explicit contents heading plus at least two page-numbered entries, or at least four repeated page-numbered entries on an early page. A copyright page is omitted only when multiple copyright/ISBN/publisher signals agree and the page is short. Ambiguous front matter is retained. These decisions are recorded in the structure checkpoint; source PDF text and per-page OCR checkpoints are never modified.
+
+Generated EPUBs use visible paragraph spacing without first-line indentation. On the first page only, Tesseract output with fewer than 20 recognized words is omitted from the reading flow when page analysis identifies a dominant cover image with at least 0.75 classification confidence and at least 45% image coverage. This filter is disabled for one-page PDFs and when image extraction confidence is insufficient; the cover image itself remains embedded, and native or text-rich page content is retained.
 
 The job list shows page progress and allows an active conversion to be cancelled. Completed jobs provide a reflowable EPUB and a JSON quality report. Recent job IDs are saved in the current browser so their status can be restored after returning to the page. The source PDF and other job files are retained in the conversion workspace for 24 hours after job completion by default. Expired completed, failed and cancelled jobs are removed automatically during periodic cleanup; queued and active jobs are not removed.
 
@@ -303,7 +309,7 @@ E-reader mode uses PDFium via pypdfium2 to render pages and ReportLab to assembl
 
 ## PDF-to-EPUB conversion
 
-PDF-to-EPUB is being developed as a separate asynchronous pipeline. It is deliberately separate from `/shrink`; the existing EPUB/PDF optimization workflow is not routed through the new worker.
+PDF-to-EPUB is available as a separate asynchronous pipeline in the web interface. It is deliberately separate from `/shrink`; the existing EPUB/PDF optimization workflow is not routed through the conversion worker.
 
 The current implementation foundation includes:
 
@@ -374,6 +380,7 @@ This is a focused runtime integrity check, not a replacement for the official EP
 - Advisory visible line-end hyphenation detection and conservative soft-hyphen cleanup.
 - Document-level repeated header/footer and page-number detection.
 - Conservative chapter/heading detection and a durable engine-independent document model.
+- Optional Gemini chapter-structure refinement, with local heuristic fallback and a persisted AI-analysis checkpoint.
 - EPUB 3 generation from conversion jobs, including navigation, chapters, PDF-derived or filename-fallback title/author metadata, and source-page-ordered image placement.
 - Runtime EPUB structural validation before a conversion job is marked complete; official EPUBCheck remains part of CI.
 
@@ -381,13 +388,15 @@ This is a focused runtime integrity check, not a replacement for the official EP
 
 1. Review exact and perceptual duplicate-cover diagnostics against real books; consider any removal only after separate validation. Semantic cover metadata and source-page image ordering are implemented; advertisement candidates no longer force images into a separate end-of-book section.
 2. Benchmark OCR quality and evaluate alternative engines such as PaddleOCR based on measured quality and resource use.
-3. Add optional AI-assisted OCR validation as a separate, opt-in capability; local OCR must continue to work without a cloud API key.
+3. Evaluate optional AI-assisted OCR/text validation as a separate capability from Gemini chapter-structure refinement; local OCR must continue to work without a cloud API key.
 
 Heading detection is intentionally conservative: it currently recognizes explicit multilingual chapter labels, simple numbered headings, known standalone section labels and short all-caps headings. It does not infer typography from PDF font sizes, and it stores annotations separately rather than modifying source text. PDF title and author document information populate EPUB metadata when present; otherwise, a `Title - Author.pdf` filename supplies the fallback. Extracted images retain source-page order. An image is placed after a source text block only when it fits in a clear vertical gap between two text blocks on the same page. A large image (coverage ≥45%) without such a gap is placed before the first text block on its own source page; it is never attached to text on a different page. Images without a reliable anchor on their source page remain in a labelled Illustrations section. Page classification estimates text, scanned text, mixed content, cover candidates, illustration candidates and advertisement candidates. Pages without text or embedded image objects remain unknown because vector drawing content is not inspected. Each estimate includes confidence and reasons. Classification does not alter OCR or discard images. A high-confidence first-page cover candidate is marked using EPUB cover metadata and also appears visibly at the beginning of the first reading chapter. Advertisement classification does not move images into a separate end-of-book section. Duplicate-cover detection is report-only: SHA-256 reports byte-identical extracted images, while a 64-bit difference hash reports visually near-identical candidates when Hamming distance is ≤5, aspect-ratio difference is ≤0.08 and image coverage is ≥40%. These diagnostics never remove images or pages automatically.
 
 ### Persistent data
 
-The Compose file mounts the named Docker volume `conversion-data` at `/data/conversion` in both services. It contains the SQLite database and per-job working directories/checkpoints. Do not remove this volume when recreating containers if you want to preserve conversion jobs. Back up the volume using a consistent stopped-container or SQLite-aware backup procedure.\n\nCompleted, failed and cancelled jobs are automatically removed after `JOB_RETENTION_HOURS` (default 24 hours, measured from completion). Queued and active jobs are never eligible for retention cleanup. `MAX_CONVERSION_STORAGE_MB` (default 5120 MB) is an admission quota for persisted job workspaces: new jobs are rejected with HTTP 507 when current stored workspace usage exceeds the limit. It covers job inputs, checkpoints and outputs, but excludes the SQLite database and temporary upload validation files. This is an admission check, not a hard filesystem quota on additional checkpoint growth during an already-running conversion.
+The Compose file mounts the named Docker volume `conversion-data` at `/data/conversion` in both services. It contains the SQLite database and per-job working directories/checkpoints. Do not remove this volume when recreating containers if you want to preserve conversion jobs. Back up the volume using a consistent stopped-container or SQLite-aware backup procedure.
+
+Completed, failed and cancelled jobs are automatically removed after `JOB_RETENTION_HOURS` (default 24 hours, measured from completion). Queued and active jobs are never eligible for retention cleanup. `MAX_CONVERSION_STORAGE_MB` (default 5120 MB) is an admission quota for persisted job workspaces: new jobs are rejected with HTTP 507 when current stored workspace usage exceeds the limit. It covers job inputs, checkpoints and outputs, but excludes the SQLite database and temporary upload validation files. This is an admission check, not a hard filesystem quota on additional checkpoint growth during an already-running conversion.
 
 The SQLite database is intended for a local filesystem-backed Docker volume. Do not place it on an NFS or SMB share.
 
@@ -443,6 +452,7 @@ The web application exposes a small API:
 | GET | /healthz | Health check; returns ok. |
 | GET | /favicon.ico | Browser favicon. |
 | POST | /shrink | Process one uploaded EPUB or PDF. |
+| POST | /send-to-cwa | Send a processed EPUB/PDF shrink result to the configured CWA ingest folder. |
 | POST | /api/conversions | Upload a PDF and create an asynchronous PDF-to-EPUB job. |
 | GET | /api/conversions/{id} | Read conversion status and page progress. |
 | GET | /api/conversions | List recent conversion jobs (default 20, maximum 100). |
@@ -451,6 +461,7 @@ The web application exposes a small API:
 | DELETE | /api/conversions/{id} | Cancel a queued or active conversion. |
 | GET | /api/conversions/{id}/download | Download the validated EPUB after completion. |
 | GET | /api/conversions/{id}/report | Download the JSON quality report after completion. |
+| POST | /api/conversions/{id}/send-to-cwa | Atomically copy a completed EPUB to the configured CWA ingest folder. |
 | GET | /api/version | Read the application version and full commit identifier. |
 
 ### PDF-to-EPUB conversion API
@@ -501,6 +512,8 @@ Common error responses include 400 for missing or unsupported uploads, 413 for f
 - **Self-hosted processing:** the application does not send documents to an Inkslim cloud service.
 - **Synchronous /shrink processing:** uploads and intermediate outputs for the existing optimization endpoint are kept in a temporary directory and removed when processing finishes or fails.
 - **Background conversion jobs:** the separate PDF-to-EPUB worker stores uploaded job inputs, SQLite job records and intermediate checkpoints in the persistent conversion-data Docker volume. This is local to your own deployment, not an Inkslim cloud service. Automatic cleanup removes terminal jobs after the configured retention period.
+- **Optional Gemini integration:** when `GEMINI_API_KEY` is configured, selected text snippets and structural metadata are sent to the Google Gemini API for chapter-structure refinement. The PDF file and page images are not sent by this feature. Without the key, structure detection remains local. See [AI-assisted chapter structure refinement](#ai-assisted-chapter-structure-refinement-optional) before enabling it.
+- **Optional CWA integration:** when configured, Inkslim copies the finished output into the locally mounted Calibre-Web Automated ingest folder. This is a local filesystem transfer, not a cloud upload initiated by Inkslim.
 - **Optional Basic Authentication:** disabled by default. Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to require credentials.
 - **Health check:** /healthz is intentionally exempt from Basic Authentication so Docker can check container health.
 - **Network exposure:** do not expose the service directly to the public internet without additional protection. Prefer a VPN such as WireGuard or Tailscale. If using a reverse proxy, enable HTTPS and configure its upload-size limit and request timeouts.
@@ -612,6 +625,7 @@ The Docker image uses Python 3.12, installs the system tools required by the EPU
     │   ├── __main__.py         # Worker entry point
     │   ├── storage.py          # SQLite job store and durable checkpoints
     │   ├── quality_report.py   # Per-page and aggregate JSON quality report
+    │   ├── gemini.py         # Optional Gemini chapter-structure refinement
     │   ├── lines.py            # Deterministic line reconstruction
     │   ├── paragraphs.py       # Geometry-based paragraph reconstruction
     │   ├── dehyphenation.py    # Conservative soft-hyphen cleanup
