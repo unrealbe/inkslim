@@ -124,6 +124,12 @@ def test_quality_report_renderer_displays_structure_warning_as_user_facing_text(
                 "message": "Identical heading text occurs more than once; review whether repeated headings are intentional.",
             }],
         },
+        "structure": {
+            "heading_count": 3,
+            "chapter_count": 3,
+            "ai_refined": True,
+            "ai_model": "gemini-2.5-flash",
+        },
         "output": {},
     }
     renderer = match.group(0).split("\nfunction renderConversionJob", 1)[0]
@@ -176,6 +182,9 @@ setImmediate(() => {{
   if (!rendered.includes("Detection only: no images were removed automatically.")) {{
     throw new Error("Non-destructive detection notice was not rendered: " + rendered);
   }}
+  if (!rendered.includes("Chapter structure: AI-refined (gemini-2.5-flash)")) {{
+    throw new Error("AI structure refinement status was not rendered: " + rendered);
+  }}
 }});
 """
     result = subprocess.run([node, "-e", script], capture_output=True, text=True, check=True)
@@ -227,5 +236,18 @@ def test_conversion_progress_status_targets_visible_status_and_shows_percentage(
     assert 'progress.value = percentage;' in html
     assert 'completedPages + "/" + totalPages + " pages · " + percentage + "%"' in html
     assert 'progress.setAttribute("aria-label","Conversion progress: " + percentage + "%")' in html
+
+
+def test_index_reflects_cwa_enabled_flag(monkeypatch):
+    app.AUTH_USER = app.AUTH_PASS = ""
+    monkeypatch.delenv("CWA_INGEST_DIR", raising=False)
+    app.app.config.pop("CWA_INGEST_DIR", None)
+    html_disabled = app.app.test_client().get("/").get_data(as_text=True)
+    assert 'data-cwa-enabled="false"' in html_disabled
+
+    monkeypatch.setitem(app.app.config, "CWA_INGEST_DIR", "/cwa-book-ingest")
+    html_enabled = app.app.test_client().get("/").get_data(as_text=True)
+    assert 'data-cwa-enabled="true"' in html_enabled
+    assert 'fetch("send-to-cwa",{method:"POST",body:cwaForm})' in html_enabled
     assert 'progress.setAttribute("aria-label","Conversion progress")' in html
     assert 'Math.max(0,Math.min(Number(details.completed_pages) || 0,Number(details.total_pages)))' in html

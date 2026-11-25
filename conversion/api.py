@@ -44,12 +44,36 @@ def _job_or_404(job_id: str) -> Job | tuple:
     return job
 
 
-def _cwa_ingest_dir() -> Path | None:
+def cwa_ingest_dir() -> Path | None:
     configured = current_app.config.get("CWA_INGEST_DIR")
     if configured is not None:
         raw = str(configured).strip()
         return Path(raw).expanduser() if raw else None
     return ConversionConfig.from_env().cwa_ingest_dir
+
+
+def write_to_cwa_ingest(ingest_dir: Path, target_name: str, writer) -> Path:
+    """Atomically write an output file into the CWA hot folder using a .tmp staging file."""
+    target_path = ingest_dir / Path(target_name).name
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=ingest_dir,
+            prefix=".inkslim-",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            writer(temp_file)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, target_path)
+    except OSError:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+    return target_path
 
 
 def _job_json(job: Job) -> dict:
@@ -67,7 +91,7 @@ def _job_json(job: Job) -> dict:
         "report": url_for("conversion_api.download_report", job_id=job.id),
         "delete": url_for("conversion_api.delete_conversion_history", job_id=job.id),
     }
-    if _cwa_ingest_dir() is not None:
+    if cwa_ingest_dir() is not None:
         links["send_to_cwa"] = url_for("conversion_api.send_to_cwa", job_id=job.id)
     payload = {
         "id": job.id,
@@ -293,7 +317,7 @@ def download_report(job_id: str):
 
 @conversion_api.post("/<job_id>/send-to-cwa")
 def send_to_cwa(job_id: str):
-    ingest_dir = _cwa_ingest_dir()
+    ingest_dir = cwa_ingest_dir()
     if ingest_dir is None:
         return jsonify(error="Calibre-Web Automated ingest folder is not configured."), 503
     if not ingest_dir.is_dir():
@@ -309,26 +333,13 @@ def send_to_cwa(job_id: str):
         logger.error("Completed conversion %s has an invalid EPUB output", job.id)
         return jsonify(error="The generated EPUB is not available."), 404
 
-    target_name = Path(path.name).name
-    target_path = ingest_dir / target_name
-    temp_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=ingest_dir,
-            prefix=".inkslim-",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_path = Path(temp_file.name)
-            with path.open("rb") as source_file:
-                shutil.copyfileobj(source_file, temp_file)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-        os.replace(temp_path, target_path)
+        target_path = write_to_cwa_ingest(
+            ingest_dir,
+            path.name,
+            lambda dest: _copy_path(path, dest),
+        )
     except OSError:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
         logger.exception("Could not copy EPUB for job %s to CWA ingest dir %s", job.id, ingest_dir)
         return jsonify(error="Could not copy the EPUB to Calibre-Web Automated."), 500
 
@@ -337,3 +348,8 @@ def send_to_cwa(job_id: str):
         filename=target_path.name,
         message=f"Sent {target_path.name} to Calibre-Web Automated.",
     ))
+
+
+def _copy_path(source_path: Path, dest_file) -> None:
+    with source_path.open("rb") as source_file:
+        shutil.copyfileobj(source_file, dest_file)

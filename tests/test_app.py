@@ -333,3 +333,40 @@ def test_pdf_within_page_limit_passes_page_count_validation(client, tmp_path, mo
     # A text-only PDF may fail because there is no size reduction; it must not
     # be rejected by the page-count limit.
     assert response.status_code != 422 or "page limit" not in response.get_json().get("error", "").lower()
+
+
+def test_send_shrunk_to_cwa_requires_configuration_and_copies_atomically(client, tmp_path, monkeypatch):
+    monkeypatch.delenv("CWA_INGEST_DIR", raising=False)
+    app.app.config.pop("CWA_INGEST_DIR", None)
+    resp_unconfigured = client.post(
+        "/send-to-cwa",
+        data={"file": (io.BytesIO(b"PK\x03\x04"), "book-small.epub")},
+        content_type="multipart/form-data",
+    )
+    assert resp_unconfigured.status_code == 503
+
+    ingest_dir = tmp_path / "cwa-ingest"
+    ingest_dir.mkdir()
+    monkeypatch.setitem(app.app.config, "CWA_INGEST_DIR", str(ingest_dir))
+
+    resp_bad_ext = client.post(
+        "/send-to-cwa",
+        data={"file": (io.BytesIO(b"text"), "notes.txt")},
+        content_type="multipart/form-data",
+    )
+    assert resp_bad_ext.status_code == 400
+
+    payload = b"PK\x03\x04shrunk-epub-bytes"
+    resp_ok = client.post(
+        "/send-to-cwa",
+        data={"file": (io.BytesIO(payload), "../My Book-small.epub")},
+        content_type="multipart/form-data",
+    )
+    assert resp_ok.status_code == 200
+    body = resp_ok.get_json()
+    assert body["sent"] is True
+    assert body["filename"] == "My Book-small.epub"
+    copied = ingest_dir / "My Book-small.epub"
+    assert copied.is_file()
+    assert copied.read_bytes() == payload
+    assert not list(ingest_dir.glob("*.tmp"))

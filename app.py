@@ -25,7 +25,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from flask import Flask, Response, jsonify, request, send_file
 
-from conversion.api import conversion_api
+from conversion.api import conversion_api, cwa_ingest_dir, write_to_cwa_ingest
 
 # Store page images as raw JPEG (DCTDecode). ReportLab's default ASCII85 text encoding
 # makes every image about 20 percent larger for no benefit.
@@ -428,7 +428,44 @@ def version():
 
 @app.get("/")
 def index():
-    return Response(INDEX_HTML, mimetype="text/html")
+    html = INDEX_HTML.replace(
+        "__CWA_ENABLED__",
+        "true" if cwa_ingest_dir() is not None else "false",
+    )
+    return Response(html, mimetype="text/html")
+
+
+@app.post("/send-to-cwa")
+def send_shrunk_to_cwa():
+    ingest_dir = cwa_ingest_dir()
+    if ingest_dir is None:
+        return jsonify(error="Calibre-Web Automated ingest folder is not configured."), 503
+    if not ingest_dir.is_dir():
+        return jsonify(error="Calibre-Web Automated ingest folder is not available."), 503
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify(error="A file is required in the 'file' field."), 400
+    ext = Path(upload.filename).suffix.lower()
+    if ext not in {".epub", ".pdf"}:
+        return jsonify(error="Only .epub and .pdf files can be sent to Calibre-Web Automated."), 400
+
+    target_name = f"{safe_stem(upload.filename)}{ext}"
+    try:
+        target_path = write_to_cwa_ingest(
+            ingest_dir,
+            target_name,
+            lambda dest: upload.save(dest),
+        )
+    except OSError:
+        app.logger.exception("Could not copy %s to CWA ingest dir %s", target_name, ingest_dir)
+        return jsonify(error="Could not copy the file to Calibre-Web Automated."), 500
+
+    return jsonify(
+        sent=True,
+        filename=target_path.name,
+        message=f"Sent {target_path.name} to Calibre-Web Automated.",
+    )
 
 
 @app.post("/shrink")
@@ -728,7 +765,7 @@ INDEX_HTML = """<!doctype html>
 </style>
 <link rel="stylesheet" href="/static/dashboard.css">
 </head>
-<body>
+<body data-cwa-enabled="__CWA_ENABLED__">
 <div class="app-shell">
   <aside class="sidebar" aria-label="Main navigation">
     <a class="sidebar-brand" href="#workspace"><img src="/static/inkslim-icon-192.png" alt=""><span>inkslim<small>BOOK WORKSPACE</small></span></a>
@@ -1247,8 +1284,14 @@ function showQualityReport(url) {
       panel.appendChild(imageNote);
     }
     const structure = report.document_structure || {};
+    const structureMeta = report.structure || {};
     const structureTitle = document.createElement("h3");
     structureTitle.textContent = "EPUB structure check";
+    const aiStatus = document.createElement("p");
+    aiStatus.className = "meta";
+    aiStatus.textContent = structureMeta.ai_refined
+      ? "Chapter structure: AI-refined" + (structureMeta.ai_model ? " (" + structureMeta.ai_model + ")" : "")
+      : "Chapter structure: local heuristics";
     const structureDetails = document.createElement("p");
     structureDetails.className = "meta";
     if (structure.status === "available") {
@@ -1256,7 +1299,7 @@ function showQualityReport(url) {
       structureDetails.textContent = "Source-page order: " +
         (readingOrder.status === "review" ? "review needed" : "OK") +
         " · " + (readingOrder.out_of_order_transitions || 0) + " out-of-order transitions";
-      panel.append(structureTitle,structureDetails);
+      panel.append(structureTitle,aiStatus,structureDetails);
       const duplicateHeadings = structure.duplicate_headings || {};
       if (Number(duplicateHeadings.count) > 0) {
         const duplicateDetails = document.createElement("p");
@@ -1277,7 +1320,7 @@ function showQualityReport(url) {
       }
     } else {
       structureDetails.textContent = "Document structure checks are unavailable.";
-      panel.append(structureTitle,structureDetails);
+      panel.append(structureTitle,aiStatus,structureDetails);
     }
     const warningTitle = document.createElement("h3");
     warningTitle.textContent = "Content warnings";
@@ -1670,12 +1713,39 @@ function next() {
       const percent = Math.round(100 - (after / before) * 100);
       const change = percent > 0 ? "(-" + percent + "%)" : percent < 0 ? "(+" + Math.abs(percent) + "% larger)" : "(same size)";
       setMeta(li,fmt(before) + " → " + fmt(after) + "  " + change,false,"done");
+      const actions = document.createElement("div");
+      actions.className = "job-actions";
       const link = document.createElement("a");
       link.className = "btn";
       link.textContent = "Download";
       link.href = URL.createObjectURL(xhr.response);
       link.download = outName(file.name);
-      li.appendChild(link);
+      actions.appendChild(link);
+      if (document.body.dataset.cwaEnabled === "true") {
+        const cwaButton = document.createElement("button");
+        cwaButton.type = "button";
+        cwaButton.className = "job-button";
+        cwaButton.textContent = "Send to Calibre-Web";
+        cwaButton.addEventListener("click",async () => {
+          cwaButton.disabled = true;
+          cwaButton.textContent = "Sending...";
+          try {
+            const cwaForm = new FormData();
+            cwaForm.append("file",xhr.response,outName(file.name));
+            const response = await fetch("send-to-cwa",{method:"POST",body:cwaForm});
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.error || "Could not send to Calibre-Web Automated.");
+            cwaButton.textContent = "Sent to Calibre-Web";
+            setMeta(li,body.message || "Sent to Calibre-Web Automated.",false,"done");
+          } catch (error) {
+            cwaButton.disabled = false;
+            cwaButton.textContent = "Send to Calibre-Web";
+            setMeta(li,error.message,true,"done");
+          }
+        });
+        actions.appendChild(cwaButton);
+      }
+      li.appendChild(actions);
     } else {
       let message = "Failed (" + xhr.status + ").";
       try { message = JSON.parse(await xhr.response.text()).error || message; } catch (_) {}

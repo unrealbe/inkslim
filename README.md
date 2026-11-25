@@ -164,7 +164,7 @@ Inkslim is 100% offline by default: document structure detection uses local heur
 
 ### Calibre-Web Automated (CWA) integration (Optional)
 
-If you run [Calibre-Web Automated](https://github.com/crocodilestick/Calibre-Web-Automated), mount its ingest hot folder into the `web` container in `docker-compose.yml` and set `CWA_INGEST_DIR=/cwa-book-ingest`. When configured, completed PDF-to-EPUB conversions display a **Send to Calibre-Web** button next to **Download EPUB** that atomically copies the validated EPUB into the ingest folder so CWA can import it automatically.
+If you run [Calibre-Web Automated](https://github.com/crocodilestick/Calibre-Web-Automated), mount its ingest hot folder into the `web` container in `docker-compose.yml` and set `CWA_INGEST_DIR=/cwa-book-ingest`. When configured, both completed PDF-to-EPUB conversions and optimized EPUB/PDF shrink results display a **Send to Calibre-Web** button next to **Download** that atomically copies the file into the ingest folder so CWA can import it automatically.
 
 **Timeout note:** the supplied Compose file overrides the image's default Gunicorn command and sets Gunicorn's request timeout to 300 seconds. SHRINK_TIMEOUT is a separate timeout for the EPUB helper process. If you routinely process large files that take several minutes, keep the Gunicorn timeout and SHRINK_TIMEOUT aligned with the processing time you need.
 
