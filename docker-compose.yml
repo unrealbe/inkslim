@@ -12,11 +12,14 @@ services:
       - SHRINK_TIMEOUT=840
       - LOG_LEVEL=INFO
       - INKSLIM_DATA_DIR=/data/conversion
+      # Optional: enable "Send to Calibre-Web" button by mounting your CWA ingest folder:
+      # - CWA_INGEST_DIR=/cwa-book-ingest
       # Uncomment both to require a login:
       # - BASIC_AUTH_USER=me
       # - BASIC_AUTH_PASS=choose-a-strong-password
     volumes:
       - conversion-data:/data/conversion
+      # - /path/to/cwa-book-ingest:/cwa-book-ingest
 
   worker:
     image: ghcr.io/unrealbe/inkslim:latest

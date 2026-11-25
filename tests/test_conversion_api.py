@@ -156,3 +156,53 @@ def test_api_returns_507_when_storage_admission_quota_is_full(api_client, tmp_pa
     response = submit(api_client, pdf_bytes(tmp_path))
     assert response.status_code == 507
     assert response.get_json()["code"] == "STORAGE_QUOTA_EXCEEDED"
+
+
+def test_send_to_cwa_requires_configuration(api_client, tmp_path, monkeypatch):
+    monkeypatch.delenv("CWA_INGEST_DIR", raising=False)
+    webapp.app.config.pop("CWA_INGEST_DIR", None)
+    created = submit(api_client, pdf_bytes(tmp_path), "My book.pdf").get_json()
+    assert "send_to_cwa" not in created["links"]
+    response = api_client.post(f"/api/conversions/{created['id']}/send-to-cwa")
+    assert response.status_code == 503
+
+
+def test_send_to_cwa_copies_validated_epub_atomically(api_client, tmp_path, monkeypatch):
+    ingest_dir = tmp_path / "cwa-book-ingest"
+    ingest_dir.mkdir()
+    monkeypatch.setitem(webapp.app.config, "CWA_INGEST_DIR", str(ingest_dir))
+
+    created = submit(api_client, pdf_bytes(tmp_path), "My book.pdf").get_json()
+    assert created["links"]["send_to_cwa"].endswith(f"/{created['id']}/send-to-cwa")
+    assert api_client.post(created["links"]["send_to_cwa"]).status_code == 409
+
+    store = webapp.app.extensions["conversion_store"]
+    job = store.get_job(created["id"])
+    store.claim_next_job("test-worker")
+    workspace = store.workspace(job.id)
+    output = build_epub(
+        workspace.output_dir / f"My-book-{job.id[:8]}.epub",
+        EpubMetadata(title="My book", language="en"),
+        [Chapter("Chapter 1", [Block("p", "A readable paragraph for the generated EPUB.")])],
+    )
+    report = workspace.output_dir / "quality-report.json"
+    report.write_text(json.dumps({"schema_version": 9, "output": {"format": "epub"}}), encoding="utf-8")
+    store.complete_job(job.id, output_path=output, report_path=report)
+
+    response = api_client.post(created["links"]["send_to_cwa"])
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["sent"] is True
+    assert payload["filename"] == output.name
+    copied = ingest_dir / output.name
+    assert copied.is_file()
+    assert copied.read_bytes() == output.read_bytes()
+    assert not list(ingest_dir.glob("*.tmp"))
+
+
+def test_send_to_cwa_returns_503_when_ingest_dir_missing(api_client, tmp_path, monkeypatch):
+    missing_dir = tmp_path / "missing-cwa-ingest"
+    monkeypatch.setitem(webapp.app.config, "CWA_INGEST_DIR", str(missing_dir))
+    created = submit(api_client, pdf_bytes(tmp_path), "My book.pdf").get_json()
+    response = api_client.post(created["links"]["send_to_cwa"])
+    assert response.status_code == 503

@@ -24,6 +24,7 @@ class ConversionConfig:
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     gemini_timeout_seconds: int = 30
+    cwa_ingest_dir: Path | None = None
 
     @property
     def database_path(self) -> Path:
@@ -51,6 +52,11 @@ class ConversionConfig:
             gemini_api_key=os.environ.get("GEMINI_API_KEY", "").strip() or None,
             gemini_model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
             gemini_timeout_seconds=_read_int("GEMINI_TIMEOUT_SECONDS", 30, minimum=1),
+            cwa_ingest_dir=(
+                Path(raw_cwa).expanduser()
+                if (raw_cwa := os.environ.get("CWA_INGEST_DIR", "").strip())
+                else None
+            ),
         )
         if config.ocr_workers != 1:
             raise ValueError("OCR_WORKERS must remain 1 in conversion V1")

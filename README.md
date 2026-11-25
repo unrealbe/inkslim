@@ -150,6 +150,7 @@ The supplied docker-compose.yml sets the host port mapping to 8125:8080 and conf
 | GEMINI_API_KEY | empty | Optional Google Gemini API key for opt-in AI structure and chapter refinement. |
 | GEMINI_MODEL | gemini-2.5-flash | Gemini model name used for AI structure analysis. |
 | GEMINI_TIMEOUT_SECONDS | 30 | Timeout in seconds for Gemini API requests. |
+| CWA_INGEST_DIR | empty | Optional path to your Calibre-Web Automated ingest folder (e.g. `/cwa-book-ingest`). Enables the **Send to Calibre-Web** button for completed EPUB conversions. |
 
 Set both BASIC_AUTH_USER and BASIC_AUTH_PASS to enable login. If either is empty, authentication is disabled.
 
@@ -160,6 +161,10 @@ Inkslim is 100% offline by default: document structure detection uses local heur
 - **Enhanced structure & navigation:** sends layout candidate snippets and early Table of Contents entries to Gemini to identify missing chapters (e.g. from fancy or stylized fonts), filter out false positive headings caused by scan artifacts or publisher logos, and provide clean chapter navigation.
 - **Graceful offline fallbacks:** if the Gemini API is unreachable, times out, or rate-limits, the conversion automatically logs a warning and proceeds with local heuristic structure detection. Jobs will never fail due to external API errors.
 - **Crash-safe checkpointing:** AI structure results are saved in a durable checkpoint (`ai-structure-analysis.json`) within the job workspace. Interrupted workers or retries reuse the cached analysis and never call the API twice.
+
+### Calibre-Web Automated (CWA) integration (Optional)
+
+If you run [Calibre-Web Automated](https://github.com/crocodilestick/Calibre-Web-Automated), mount its ingest hot folder into the `web` container in `docker-compose.yml` and set `CWA_INGEST_DIR=/cwa-book-ingest`. When configured, completed PDF-to-EPUB conversions display a **Send to Calibre-Web** button next to **Download EPUB** that atomically copies the validated EPUB into the ingest folder so CWA can import it automatically.
 
 **Timeout note:** the supplied Compose file overrides the image's default Gunicorn command and sets Gunicorn's request timeout to 300 seconds. SHRINK_TIMEOUT is a separate timeout for the EPUB helper process. If you routinely process large files that take several minutes, keep the Gunicorn timeout and SHRINK_TIMEOUT aligned with the processing time you need.
 

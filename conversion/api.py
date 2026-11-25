@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import tempfile
 from pathlib import Path
 from uuid import UUID
@@ -42,6 +44,14 @@ def _job_or_404(job_id: str) -> Job | tuple:
     return job
 
 
+def _cwa_ingest_dir() -> Path | None:
+    configured = current_app.config.get("CWA_INGEST_DIR")
+    if configured is not None:
+        raw = str(configured).strip()
+        return Path(raw).expanduser() if raw else None
+    return ConversionConfig.from_env().cwa_ingest_dir
+
+
 def _job_json(job: Job) -> dict:
     try:
         input_size = Path(job.input_path).stat().st_size
@@ -51,6 +61,14 @@ def _job_json(job: Job) -> dict:
         output_size = Path(job.output_path).stat().st_size if job.output_path else None
     except OSError:
         output_size = None
+    links = {
+        "self": url_for("conversion_api.get_conversion", job_id=job.id),
+        "download": url_for("conversion_api.download_conversion", job_id=job.id),
+        "report": url_for("conversion_api.download_report", job_id=job.id),
+        "delete": url_for("conversion_api.delete_conversion_history", job_id=job.id),
+    }
+    if _cwa_ingest_dir() is not None:
+        links["send_to_cwa"] = url_for("conversion_api.send_to_cwa", job_id=job.id)
     payload = {
         "id": job.id,
         "short_id": job.id.split("-", 1)[0],
@@ -78,12 +96,7 @@ def _job_json(job: Job) -> dict:
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "cancellation_requested": job.cancellation_requested,
-        "links": {
-            "self": url_for("conversion_api.get_conversion", job_id=job.id),
-            "download": url_for("conversion_api.download_conversion", job_id=job.id),
-            "report": url_for("conversion_api.download_report", job_id=job.id),
-            "delete": url_for("conversion_api.delete_conversion_history", job_id=job.id),
-        },
+        "links": links,
     }
     return payload
 
@@ -276,3 +289,51 @@ def download_report(job_id: str):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@conversion_api.post("/<job_id>/send-to-cwa")
+def send_to_cwa(job_id: str):
+    ingest_dir = _cwa_ingest_dir()
+    if ingest_dir is None:
+        return jsonify(error="Calibre-Web Automated ingest folder is not configured."), 503
+    if not ingest_dir.is_dir():
+        return jsonify(error="Calibre-Web Automated ingest folder is not available."), 503
+
+    job = _job_or_404(job_id)
+    if isinstance(job, tuple):
+        return job
+    path, error = _completed_file(job, job.output_path, "epub")
+    if error:
+        return error
+    if validate_epub(path):
+        logger.error("Completed conversion %s has an invalid EPUB output", job.id)
+        return jsonify(error="The generated EPUB is not available."), 404
+
+    target_name = Path(path.name).name
+    target_path = ingest_dir / target_name
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=ingest_dir,
+            prefix=".inkslim-",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            with path.open("rb") as source_file:
+                shutil.copyfileobj(source_file, temp_file)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, target_path)
+    except OSError:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.exception("Could not copy EPUB for job %s to CWA ingest dir %s", job.id, ingest_dir)
+        return jsonify(error="Could not copy the EPUB to Calibre-Web Automated."), 500
+
+    return _no_store(jsonify(
+        sent=True,
+        filename=target_path.name,
+        message=f"Sent {target_path.name} to Calibre-Web Automated.",
+    ))

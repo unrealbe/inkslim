@@ -1356,6 +1356,27 @@ function renderConversionJob(item,job) {
       conversionMeta(item,"completed · PDF → EPUB");
     }
     conversionAction(item,"Download EPUB",job.links.download);
+    if (job.links && job.links.send_to_cwa) {
+      const cwaButton = document.createElement("button");
+      cwaButton.type = "button"; cwaButton.className = "job-button";
+      cwaButton.textContent = "Send to Calibre-Web";
+      cwaButton.addEventListener("click",async () => {
+        cwaButton.disabled = true;
+        cwaButton.textContent = "Sending...";
+        try {
+          const response = await fetch(job.links.send_to_cwa,{method:"POST"});
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(body.error || "Could not send to Calibre-Web Automated.");
+          cwaButton.textContent = "Sent to Calibre-Web";
+          conversionMeta(item,body.message || "Sent to Calibre-Web Automated.");
+        } catch (error) {
+          cwaButton.disabled = false;
+          cwaButton.textContent = "Send to Calibre-Web";
+          conversionMeta(item,error.message,true);
+        }
+      });
+      actions.appendChild(cwaButton);
+    }
     const reportButton = document.createElement("button");
     reportButton.type = "button"; reportButton.className = "job-button";
     reportButton.textContent = "View report";

@@ -56,6 +56,8 @@ def test_conversion_ui_exposes_upload_language_and_job_controls():
     assert 'Clear completed, failed and cancelled conversions' in html
     assert 'method:"DELETE"' in html
     assert 'Download EPUB' in html
+    assert 'Send to Calibre-Web' in html
+    assert 'job.links.send_to_cwa' in html
     assert 'JSON report' in html
     assert '"Pages with results"' in html
     assert 'warning.page_numbers.join(", ")' in html
