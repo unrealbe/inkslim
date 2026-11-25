@@ -4,7 +4,7 @@
 
 Inkslim is a small web application for reducing the size of EPUB books and PDF documents before transferring them to an e-reader. It is designed with devices such as the black-and-white Kobo Glo in mind, but includes presets for colour screens and lets you tune the settings.
 
-It runs on your own NAS, Raspberry Pi, home server, or Linux machine. Files are processed locally by your Inkslim instance; there is no Inkslim cloud account or external conversion service.
+It runs on your own NAS, Raspberry Pi, home server, or Linux machine. By default, files are processed locally by your Inkslim instance; there is no Inkslim cloud account or hosted conversion service. Optional Gemini chapter-structure refinement sends selected text snippets and structural metadata to Google's API only when you configure an API key.
 
 ## Contents
 
