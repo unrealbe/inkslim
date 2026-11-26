@@ -603,9 +603,12 @@ def test_worker_gemini_structure_fallback_on_unusable_response(tmp_path, gemini_
              "conversion.gemini.query_gemini_structure",
              side_effect=gemini_response if isinstance(gemini_response, Exception) else None,
              return_value=gemini_response if not isinstance(gemini_response, Exception) else None,
-         ), \
+         ) as mock_query, \
          patch("conversion.pdf.ocr_processor.generate_job_epub", return_value=tmp_path / "out.epub"), \
          patch("conversion.pdf.ocr_processor.build_quality_report", return_value=tmp_path / "report.json"):
+
+        # The fallback must be exercised, not merely inferred from heuristic output.
+        mock_query.assert_called_once()
 
         # Must not raise GeminiApiError; should complete smoothly using heuristic detection
         result = processor(job, workspace, store)
