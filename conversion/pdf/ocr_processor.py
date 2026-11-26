@@ -341,14 +341,22 @@ class PdfOcrJobProcessor:
                         if cached_ai:
                             from ..gemini import apply_gemini_structure_refinement
 
-                            structure, page_annotations = apply_gemini_structure_refinement(
-                                stitched_pages,
-                                structure,
-                                page_annotations,
-                                cached_ai,
-                                total_pages=total_pages,
-                                model_name=self.gemini_model,
-                            )
+                            try:
+                                structure, page_annotations = apply_gemini_structure_refinement(
+                                    stitched_pages,
+                                    structure,
+                                    page_annotations,
+                                    cached_ai,
+                                    total_pages=total_pages,
+                                    model_name=self.gemini_model,
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "Gemini structure refinement could not be applied for job %s, "
+                                    "falling back to heuristic structure: %s",
+                                    job.id,
+                                    exc,
+                                )
                 else:
                     page_annotations = {}
                 for page_number in range(1, total_pages + 1):
